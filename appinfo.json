@@ -1,0 +1,14 @@
+{
+  "id": "com.smartneighbor.kidslauncher",
+  "title": "Kids TV",
+  "main": "index.html",
+  "type": "web",
+  "icon": "icon_80.png",
+  "largeIcon": "icon_130.png",
+  "version": "1.0.0",
+  "vendor": "smartneighbor",
+  "description": "Simple TV launcher for kids — pick a show and go.",
+  "resolution": "1920x1080",
+  "transparent": false,
+  "useNativeScroll": false
+}

@@ -1,0 +1,42 @@
+{
+  "shows": [
+    {
+      "title": "Bluey",
+      "image": "https://image.tmdb.org/t/p/w500/mDhGuqDmBn5MUaZMFBVolyAO9Bw.jpg",
+      "platform": "netflix",
+      "contentId": "80236083",
+      "mediaType": "show"
+    },
+    {
+      "title": "Paw Patrol",
+      "image": "https://image.tmdb.org/t/p/w500/4PjPKuNAkgEP9v3JuFM7gJCGGm8.jpg",
+      "platform": "netflix",
+      "contentId": "70281864",
+      "mediaType": "show"
+    },
+    {
+      "title": "Peppa Pig",
+      "image": "https://image.tmdb.org/t/p/w500/aIFpqpxAkBFSIGFMHcBzJFHHPSH.jpg",
+      "platform": "youtube",
+      "contentTarget": "https://www.youtube.com/channel/UCAOtE1V7Ots4DjM8JLlrYgg"
+    },
+    {
+      "title": "Blippi",
+      "image": "https://image.tmdb.org/t/p/w500/bDc3T8L0m7bZzxnQqrJpBCdWiLO.jpg",
+      "platform": "youtube",
+      "contentTarget": "https://www.youtube.com/channel/UCbCmjCuTUZos6Inko4u57UQ"
+    },
+    {
+      "title": "Bumba",
+      "image": "https://image.tmdb.org/t/p/w500/placeholder.jpg",
+      "platform": "videoland",
+      "contentTarget": "https://www.videoland.com/serie/bumba"
+    },
+    {
+      "title": "K3",
+      "image": "https://image.tmdb.org/t/p/w500/placeholder.jpg",
+      "platform": "videoland",
+      "contentTarget": "https://www.videoland.com/serie/k3"
+    }
+  ]
+}

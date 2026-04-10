@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920">
+  <title>Kids TV</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1 id="app-title">Wat wil je kijken?</h1>
+    </header>
+    <div id="grid-container">
+      <div id="grid" class="grid" role="grid" aria-label="Shows"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="alert"></div>
+
+  <div id="loading">
+    <span>Laden…</span>
+  </div>
+
+  <!-- webOSTV.js — present on device, shimmed for browser dev -->
+  <script src="webOSTVjs/webOSTV.js" onerror="void(0)"></script>
+  <script src="app.js"></script>
+</body>
+</html>
