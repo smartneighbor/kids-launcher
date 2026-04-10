@@ -2,39 +2,39 @@
   "shows": [
     {
       "title": "Bluey",
-      "image": "https://image.tmdb.org/t/p/w500/mDhGuqDmBn5MUaZMFBVolyAO9Bw.jpg",
+      "image": "https://media.themoviedb.org/t/p/w500/b9mY0X5T20ZM073hoa5n0dgmbfN.jpg",
       "platform": "netflix",
       "contentId": "80236083",
       "mediaType": "show"
     },
     {
       "title": "Paw Patrol",
-      "image": "https://image.tmdb.org/t/p/w500/4PjPKuNAkgEP9v3JuFM7gJCGGm8.jpg",
+      "image": "https://media.themoviedb.org/t/p/w500/8HXkgUBO5OF8ZK9XbY69RM4S5rv.jpg",
       "platform": "netflix",
       "contentId": "70281864",
       "mediaType": "show"
     },
     {
       "title": "Peppa Pig",
-      "image": "https://image.tmdb.org/t/p/w500/aIFpqpxAkBFSIGFMHcBzJFHHPSH.jpg",
+      "image": "https://media.themoviedb.org/t/p/w500/iwKVo3HlsyVNXCzFEkd0xHz3kGi.jpg",
       "platform": "youtube",
       "contentTarget": "https://www.youtube.com/channel/UCAOtE1V7Ots4DjM8JLlrYgg"
     },
     {
       "title": "Blippi",
-      "image": "https://image.tmdb.org/t/p/w500/bDc3T8L0m7bZzxnQqrJpBCdWiLO.jpg",
+      "image": "https://media.themoviedb.org/t/p/w500/lBqTjYByc3qDiLjdD2RtIk6vVZq.jpg",
       "platform": "youtube",
       "contentTarget": "https://www.youtube.com/channel/UCbCmjCuTUZos6Inko4u57UQ"
     },
     {
       "title": "Bumba",
-      "image": "https://image.tmdb.org/t/p/w500/placeholder.jpg",
+      "image": "https://media.themoviedb.org/t/p/w500/5fYMddjA7zcaisK7LE92ufzrgt8.jpg",
       "platform": "videoland",
       "contentTarget": "https://www.videoland.com/serie/bumba"
     },
     {
       "title": "K3",
-      "image": "https://image.tmdb.org/t/p/w500/placeholder.jpg",
+      "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/K3_tijdens_de_Vleugels_tour.jpg/640px-K3_tijdens_de_Vleugels_tour.jpg",
       "platform": "videoland",
       "contentTarget": "https://www.videoland.com/serie/k3"
     }
