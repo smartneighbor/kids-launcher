@@ -15,20 +15,10 @@ const APP_IDS = {
 // ── WebOS detection ───────────────────────────────────────────
 // webOSTV.js sets window.webOS when running on device.
 // In a browser we shim it so the app is previewable on a Mac.
-const IS_WEBOS = typeof webOS !== 'undefined';
+const IS_WEBOS = typeof PalmServiceBridge !== 'undefined';
 
 if (!IS_WEBOS) {
-  console.warn('[DEV] Running outside WebOS — service calls are simulated.');
-  window.webOS = {
-    service: {
-      request: function (uri, opts) {
-        console.log('[DEV] luna call:', uri + '/' + opts.method, opts.parameters);
-        setTimeout(function () {
-          if (opts.onSuccess) opts.onSuccess({ returnValue: true, exist: true });
-        }, 300);
-      }
-    }
-  };
+  console.warn('[DEV] Running outside WebOS — app launches will open in browser.');
 }
 
 // ── State ─────────────────────────────────────────────────────
@@ -232,6 +222,25 @@ function activateShow(idx) {
 function launchApp(appId, params) {
   if (!appId) {
     showToast('App-ID onbekend.');
+    return;
+  }
+
+  // Browser dev fallback: open equivalent web URL instead of launching TV app
+  if (!IS_WEBOS) {
+    var url = null;
+    if (appId === APP_IDS.netflix && params.contentId) {
+      url = 'https://www.netflix.com/watch/' + params.contentId;
+    } else if (appId === APP_IDS.youtube && params.contentTarget) {
+      url = params.contentTarget;
+    } else if (params.contentTarget) {
+      url = params.contentTarget;
+    }
+    if (url) {
+      console.log('[DEV] Opening in browser:', url);
+      window.open(url, '_blank');
+    } else {
+      console.log('[DEV] Would launch app:', appId, params);
+    }
     return;
   }
 
