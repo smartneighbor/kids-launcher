@@ -5,7 +5,7 @@
   "type": "web",
   "icon": "icon_80.png",
   "largeIcon": "icon_130.png",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "vendor": "Joey",
   "description": "Kindvriendelijke Jellyfin-player voor de LG OLED.",
   "resolution": "1920x1080",

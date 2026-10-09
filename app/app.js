@@ -2,7 +2,7 @@
   "use strict";
 
   var cfg = window.KIDS_TV_CONFIG;
-  var APP_VERSION = "0.8.3";
+  var APP_VERSION = "0.8.4";
   var DEVICE_ID = navigator.userAgent.indexOf("Web0S") !== -1 ? "kidstv-lg" : "kidstv-preview";
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
               PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412,
@@ -72,10 +72,18 @@
     });
   }
 
-  function api(path) {
+  function wait(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  // GET with re-login on 401 and a few retries on network/server errors
+  // (right after the TV wakes up, the network is not always ready yet).
+  function api(path, attempt) {
+    attempt = attempt || 0;
     return request("GET", path).catch(function (err) {
-      if (err.status !== 401) throw err;
-      return login().then(function () { return request("GET", path); });
+      if (err.status === 401) return login().then(function () { return request("GET", path); });
+      if (attempt >= 3 || (err.status && err.status < 500)) throw err;
+      return wait(1500 * (attempt + 1)).then(function () { return api(path, attempt + 1); });
     });
   }
 
@@ -872,14 +880,40 @@
     return;
   }
 
-  restoreLogin()
-    .then(loadLibrary)
-    .then(function (list) {
-      state.library = list.filter(function (s) { return s && s.episodes.length; });
-      if (!state.library.length) { showMessage("Geen video's gevonden in Jellyfin"); return; }
-      selectTab("series");
-    })
-    .catch(function (err) {
-      showMessage("Kan Jellyfin niet bereiken (" + err.message + ")");
-    });
+  // Load (or reload) all cards. Runs at start, again if something failed to load,
+  // and whenever the app comes back to the foreground (picks up new content in Jellyfin).
+  var loading = false;
+
+  function refreshLibrary() {
+    if (loading) return;
+    loading = true;
+    restoreLogin()
+      .then(loadLibrary)
+      .then(function (list) {
+        loading = false;
+        var ok = list.filter(function (s) { return s && s.episodes.length; });
+        var incomplete = ok.length < list.length;
+        if (!ok.length) {
+          showMessage("Even geduld…");
+          setTimeout(refreshLibrary, 5000);
+          return;
+        }
+        var changed = JSON.stringify(ok.map(function (s) { return s.id; })) !==
+                      JSON.stringify(state.library.map(function (s) { return s.id; }));
+        state.library = ok;
+        if (changed && state.screen === "home") selectTab(state.tab);
+        if (incomplete) setTimeout(refreshLibrary, 5000);
+      })
+      .catch(function () {
+        loading = false;
+        if (!state.library.length) showMessage("Kan Jellyfin niet bereiken, ik probeer het opnieuw…");
+        setTimeout(refreshLibrary, 5000);
+      });
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && state.screen === "home") refreshLibrary();
+  });
+
+  refreshLibrary();
 })();
