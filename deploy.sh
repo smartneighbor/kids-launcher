@@ -22,7 +22,7 @@ command -v ares-package >/dev/null || { echo "ERROR: run npm i -g @webos-tools/c
 rm -rf "$PKG_DIR"
 mkdir -p "$PKG_DIR"
 [[ -f app/config.js ]] || { echo "ERROR: app/config.js missing (see app/config.example.js)"; exit 1; }
-ares-package app --outdir "$PKG_DIR" -e config.example.js
+ares-package app --outdir "$PKG_DIR"
 [[ "${1:-}" == "--package" ]] && exit 0
 
 ares-install --device "$DEVICE" "$IPK"
