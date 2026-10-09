@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # deploy.sh — package and sideload the Kids TV loader app to the LG TV via Developer Mode.
 #
-# The TV app (tv/) is only a loader; the real app (web/) is served by Caddy on the
-# always-on Mac (http://192.168.1.61:8790/). Changes in web/ are live immediately:
-# no deploy needed. Only run this when tv/ changes.
+# Packages app/ (self-contained, no server needed besides Jellyfin).
 #
 # Usage:
 #   ./deploy.sh            # package + install (does not open the app on the TV)
@@ -14,8 +12,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 DEVICE="${DEVICE:-tv}"
-APP_ID=$(python3 -c 'import json; print(json.load(open("tv/appinfo.json"))["id"])')
-VERSION=$(python3 -c 'import json; print(json.load(open("tv/appinfo.json"))["version"])')
+APP_ID=$(python3 -c 'import json; print(json.load(open("app/appinfo.json"))["id"])')
+VERSION=$(python3 -c 'import json; print(json.load(open("app/appinfo.json"))["version"])')
 PKG_DIR="./dist"
 IPK="$PKG_DIR/${APP_ID}_${VERSION}_all.ipk"
 
@@ -23,7 +21,8 @@ command -v ares-package >/dev/null || { echo "ERROR: run npm i -g @webos-tools/c
 
 rm -rf "$PKG_DIR"
 mkdir -p "$PKG_DIR"
-ares-package tv --outdir "$PKG_DIR"
+[[ -f app/config.js ]] || { echo "ERROR: app/config.js missing (see app/config.example.js)"; exit 1; }
+ares-package app --outdir "$PKG_DIR" -e config.example.js
 [[ "${1:-}" == "--package" ]] && exit 0
 
 ares-install --device "$DEVICE" "$IPK"

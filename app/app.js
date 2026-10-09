@@ -2,7 +2,7 @@
   "use strict";
 
   var cfg = window.KIDS_TV_CONFIG;
-  var APP_VERSION = "0.5.0";
+  var APP_VERSION = "0.6.0";
   var DEVICE_ID = "kidstv-lg";
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
               PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412,
@@ -34,7 +34,10 @@
 
   var state = {
     screen: "home",
-    series: [],      // [{ id, title, type, episodes: [{ Id, Name, MediaSourceId }] }]
+    library: [],     // every playable entry: { id, title, type, episodes: [{ Id, Name, MediaSourceId }] }
+    series: [],      // entries shown as cards for the current tab
+    tab: "series",   // "series" | "movies"
+    homeFocus: "grid", // "grid" | "tabs"
     focus: 0,
     current: null,   // { series, index, playSessionId, playMethod, startAt, reported }
     ctrlFocus: "bar",
@@ -232,6 +235,8 @@
   function renderGrid() {
     var grid = $("grid");
     grid.innerHTML = "";
+    // Fewer cards than columns: keep them centered instead of left-aligned.
+    grid.style.gridTemplateColumns = "repeat(" + Math.max(1, Math.min(COLUMNS, state.series.length)) + ", 440px)";
     state.series.forEach(function (s, i) {
       var card = document.createElement("div");
       card.className = "card";
@@ -246,20 +251,50 @@
       };
       img.src = sources.shift();
 
-      card.addEventListener("mouseover", function () { setFocus(i); });
+      card.addEventListener("mouseover", function () { state.homeFocus = "grid"; setFocus(i); });
       card.addEventListener("click", function () { setFocus(i); openSeries(s); });
       grid.appendChild(card);
     });
-    setFocus(Math.min(state.focus, state.series.length - 1));
+    setFocus(Math.max(0, Math.min(state.focus, state.series.length - 1)));
   }
 
   function setFocus(i) {
     var cards = $("grid").children;
-    if (!cards.length) return;
-    state.focus = Math.max(0, Math.min(cards.length - 1, i));
+    if (cards.length) state.focus = Math.max(0, Math.min(cards.length - 1, i));
     for (var n = 0; n < cards.length; n++) {
-      cards[n].className = n === state.focus ? "card focused" : "card";
+      cards[n].className = state.homeFocus === "grid" && n === state.focus ? "card focused" : "card";
     }
+    renderTabs();
+  }
+
+  // ── Tabs (Series / Films) ────────────────────────
+
+  var TAB_TYPES = { series: "Series", movies: "Movie" };
+  var EMPTY_TEXT = { series: "Nog geen series", movies: "Nog geen films" };
+
+  function renderTabs() {
+    var tabs = $("tabs").children;
+    for (var n = 0; n < tabs.length; n++) {
+      var t = tabs[n].getAttribute("data-tab");
+      var cls = "tab";
+      if (t === state.tab) cls += " selected";
+      if (state.homeFocus === "tabs" && t === state.tab) cls += " focused";
+      tabs[n].className = cls;
+    }
+  }
+
+  function selectTab(tab) {
+    if (state.tab !== tab) {
+      state.tab = tab;
+      state.focus = 0;
+    }
+    state.series = state.library.filter(function (s) { return s.type === TAB_TYPES[tab]; });
+    $("message").className = "message hidden";
+    if (!state.series.length) {
+      state.homeFocus = "tabs";
+      showMessage(EMPTY_TEXT[tab]);
+    }
+    renderGrid();
   }
 
   function showMessage(text) {
@@ -269,10 +304,25 @@
   }
 
   function homeKey(code) {
+    if (state.homeFocus === "tabs") {
+      switch (code) {
+        case KEY.LEFT: selectTab("series"); break;
+        case KEY.RIGHT: selectTab("movies"); break;
+        case KEY.DOWN:
+        case KEY.ENTER:
+          if (state.series.length) { state.homeFocus = "grid"; setFocus(state.focus); }
+          break;
+      }
+      return;
+    }
+
     switch (code) {
       case KEY.LEFT: setFocus(state.focus - 1); break;
       case KEY.RIGHT: setFocus(state.focus + 1); break;
-      case KEY.UP: setFocus(state.focus - COLUMNS); break;
+      case KEY.UP:
+        if (state.focus < COLUMNS) { state.homeFocus = "tabs"; setFocus(state.focus); }
+        else setFocus(state.focus - COLUMNS);
+        break;
       case KEY.DOWN: setFocus(state.focus + COLUMNS); break;
       case KEY.ENTER:
       case KEY.PLAY:
@@ -281,6 +331,10 @@
       // Back on home is ignored on purpose: kids should not leave the app by accident.
     }
   }
+
+  [].forEach.call($("tabs").children, function (el) {
+    el.addEventListener("click", function () { selectTab(el.getAttribute("data-tab")); });
+  });
 
   // ── Player ───────────────────────────────────────
 
@@ -537,6 +591,10 @@
 
   // ── Boot ─────────────────────────────────────────
 
+  // Browser preview on a smaller screen: http://127.0.0.1:8790/?zoom=0.75 scales the 1920x1080 UI.
+  var zoom = /[?&]zoom=([0-9.]+)/.exec(location.search);
+  if (zoom) document.body.style.zoom = zoom[1];
+
   renderDoodles();
 
   if (!cfg || !cfg.username) {
@@ -547,9 +605,9 @@
   restoreLogin()
     .then(loadLibrary)
     .then(function (list) {
-      state.series = list.filter(function (s) { return s && s.episodes.length; });
-      if (!state.series.length) showMessage("Geen video's gevonden in Jellyfin");
-      renderGrid();
+      state.library = list.filter(function (s) { return s && s.episodes.length; });
+      if (!state.library.length) { showMessage("Geen video's gevonden in Jellyfin"); return; }
+      selectTab("series");
     })
     .catch(function (err) {
       showMessage("Kan Jellyfin niet bereiken (" + err.message + ")");

@@ -22,7 +22,37 @@ html, body {
 
 #home {
   display: flex;
+  flex-direction: column;
+}
+
+.tabs {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 64px;
+}
+
+.tab {
+  margin: 0 20px;
+  padding: 14px 44px 18px;
+  border-radius: 40px;
+  font-size: 44px;
+  font-weight: 800;
+  color: #2D2D2D;
+  border-bottom: 6px solid transparent;
+}
+
+.tab.selected { color: #E51B23; }
+.tab.selected:not(.focused) { border-radius: 0; border-bottom-color: #E51B23; padding-bottom: 12px; }
+.tab.focused { background: #E51B23; color: #fff; transform: scale(1.06); }
+
+.grid-area {
+  position: relative;
+  flex: 1;
+  display: flex;
   align-items: center;
+  justify-content: center;
+  padding-bottom: 60px;
 }
 
 #doodles svg {
@@ -33,17 +63,16 @@ html, body {
 .grid {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-gap: 30px;
-  width: 1920px;
-  padding: 0 100px;
+  grid-template-columns: repeat(3, 440px);
+  grid-gap: 64px 60px;
+  justify-content: center;
 }
 
 .card {
   position: relative;
   width: 100%;
   padding-top: 66.67%; /* 3:2 */
-  border-radius: 39px;
+  border-radius: 32px;
   overflow: hidden;
   background: #EDE8DC;
   box-shadow: 0 10px 22px rgba(90, 75, 54, 0.24);
@@ -61,22 +90,22 @@ html, body {
 .card .shade {
   position: absolute;
   left: 0; right: 0; bottom: 0;
-  height: 138px;
+  height: 110px;
   background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.82));
 }
 
 .card .title {
   position: absolute;
-  left: 0; right: 0; bottom: 18px;
+  left: 0; right: 0; bottom: 16px;
   text-align: center;
   color: #fff;
-  font-size: 51px;
+  font-size: 40px;
   font-weight: 800;
 }
 
 .card.focused {
-  transform: scale(1.05);
-  box-shadow: 0 0 0 10px #E51B23, 0 16px 34px rgba(90, 75, 54, 0.35);
+  transform: scale(1.06);
+  box-shadow: 0 0 0 8px #E51B23, 0 16px 34px rgba(90, 75, 54, 0.35);
 }
 
 .message {
