@@ -2,7 +2,7 @@
   "use strict";
 
   var cfg = window.KIDS_TV_CONFIG;
-  var APP_VERSION = "0.4.0";
+  var APP_VERSION = "0.5.0";
   var DEVICE_ID = "kidstv-lg";
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
               PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412,
@@ -131,20 +131,6 @@
     };
   }
 
-  // Config entries use either a Jellyfin id or an exact name ("Bing", "Dikkertje Dap").
-  function findItem(s) {
-    var base = "/Items?userId=" + state.userId + "&Fields=MediaSources";
-    if (s.id) return api(base + "&Ids=" + s.id).then(function (d) { return d.Items[0]; });
-    return api(base + "&Recursive=true&IncludeItemTypes=Series,Movie&searchTerm=" + encodeURIComponent(s.name))
-      .then(function (data) {
-        var want = s.name.toLowerCase();
-        var exact = data.Items.filter(function (it) { return it.Name.toLowerCase() === want; });
-        var item = exact[0] || data.Items[0];
-        if (!item) throw new Error(s.name + " niet gevonden");
-        return item;
-      });
-  }
-
   function loadEpisodes(entry) {
     if (entry.type === "Movie") {
       return api("/Items?userId=" + state.userId + "&Fields=MediaSources&Ids=" + entry.id)
@@ -155,14 +141,15 @@
       .then(function (d) { entry.episodes = d.Items.map(toPlayable); return entry; });
   }
 
-  function loadSeries(s) {
-    return findItem(s)
-      .then(function (item) {
-        return loadEpisodes({ id: item.Id, title: s.title || item.Name, type: item.Type, episodes: [] });
-      })
-      .catch(function (err) {
-        console.warn("Overgeslagen:", s.name || s.id, err.message);
-        return null;
+  // Every series and movie the Jellyfin user may see becomes a card. Which content that is,
+  // is managed in Jellyfin (the Kids user only sees items tagged "kids").
+  function loadLibrary() {
+    return api("/Items?userId=" + state.userId + "&Recursive=true&IncludeItemTypes=Series,Movie&SortBy=SortName")
+      .then(function (d) {
+        return Promise.all(d.Items.map(function (it) {
+          return loadEpisodes({ id: it.Id, title: it.Name, type: it.Type, episodes: [] })
+            .catch(function () { return null; });
+        }));
       });
   }
 
@@ -558,7 +545,7 @@
   }
 
   restoreLogin()
-    .then(function () { return Promise.all(cfg.series.map(loadSeries)); })
+    .then(loadLibrary)
     .then(function (list) {
       state.series = list.filter(function (s) { return s && s.episodes.length; });
       if (!state.series.length) showMessage("Geen video's gevonden in Jellyfin");

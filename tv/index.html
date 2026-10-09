@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <title>Kids TV</title>
+  <style>
+    html, body { margin: 0; width: 1920px; height: 1080px; background: #FFFCF5; overflow: hidden;
+      font-family: "Museo Sans", "LG Smart UI", Roboto, Arial, sans-serif; }
+    #msg { position: absolute; top: 480px; left: 0; right: 0; text-align: center;
+      font-size: 40px; font-weight: 700; color: #817B70; }
+  </style>
+</head>
+<body>
+  <div id="msg"></div>
+  <script>
+    // Thin loader: the real app is served by the always-on Mac, so updates need no reinstall on the TV.
+    var APP_URL = "http://192.168.1.61:8790/";
+    var msg = document.getElementById("msg");
+
+    function tryLoad() {
+      fetch(APP_URL + "index.html", { cache: "no-store" })
+        .then(function (res) {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          window.location.replace(APP_URL + "?t=" + Date.now());
+        })
+        .catch(function () {
+          msg.textContent = "Kids TV is even niet bereikbaar. Ik probeer het zo opnieuw…";
+          setTimeout(tryLoad, 10000);
+        });
+    }
+
+    tryLoad();
+  </script>
+</body>
+</html>
