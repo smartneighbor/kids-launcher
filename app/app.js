@@ -2,7 +2,7 @@
   "use strict";
 
   var cfg = window.KIDS_TV_CONFIG;
-  var APP_VERSION = "0.8.0";
+  var APP_VERSION = "0.8.1";
   var DEVICE_ID = navigator.userAgent.indexOf("Web0S") !== -1 ? "kidstv-lg" : "kidstv-preview";
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
               PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412,
@@ -626,7 +626,6 @@
       var row = document.createElement("div");
       var cls = "ep-row";
       if (ep.area === "list" && r === ep.row) cls += " focused";
-      if (index === ep.currentIndex) cls += " current";
       row.className = cls;
 
       var pct = !ud.Played && ud.PlaybackPositionTicks && e.RunTimeTicks ?
@@ -638,8 +637,7 @@
         "</div>" +
         '<div class="ep-text"><div class="ep-title"></div><div class="ep-meta"></div></div>';
       row.querySelector(".ep-title").textContent = (e.Index ? e.Index + ". " : "") + e.Name;
-      row.querySelector(".ep-meta").textContent =
-        index === ep.currentIndex ? (ep.from === "player" ? "Speelt nu" : "Hier ga je verder") : minutes(e.RunTimeTicks);
+      row.querySelector(".ep-meta").textContent = minutes(e.RunTimeTicks);
 
       var img = row.querySelector("img");
       var sources = [cfg.jellyfinUrl + "/Items/" + e.Id + "/Images/Primary?maxWidth=480&quality=85&tag=" + e.ImageTag,

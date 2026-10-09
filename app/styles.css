@@ -35,20 +35,25 @@ html, body {
 .tab {
   display: flex;
   align-items: center;
-  margin: 0 20px;
-  padding: 14px 44px 18px 36px;
-  border-radius: 40px;
+  margin: 0 16px;
+  padding: 14px 44px 14px 34px;
+  border-radius: 48px;
   font-size: 44px;
   font-weight: 800;
   color: #2D2D2D;
-  border-bottom: 6px solid transparent;
+  background: #FFFDF8;
+  box-shadow: 0 6px 16px rgba(90, 75, 54, 0.18);
+  transition: transform 0.12s ease;
 }
 
 .tab svg { width: 52px; height: 52px; margin-right: 16px; fill: currentColor; }
 
-.tab.selected { color: #E51B23; }
-.tab.selected:not(.focused) { border-radius: 0; border-bottom-color: #E51B23; padding-bottom: 12px; }
-.tab.focused { background: #E51B23; color: #fff; transform: scale(1.06); }
+/* Selected tab = filled red pill; both tabs stay equally clear. */
+.tab.selected { background: #E51B23; color: #fff; }
+.tab.focused {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 6px #FFFCF5, 0 0 0 12px #E51B23, 0 12px 26px rgba(90, 75, 54, 0.3);
+}
 
 .grid-area {
   position: relative;
@@ -408,4 +413,3 @@ html, body {
   color: #817B70;
 }
 
-.ep-row.current .ep-meta { color: #E51B23; }
