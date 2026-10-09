@@ -87,7 +87,7 @@
 
   function loadSeries(s) {
     return findItem(s).then(function (item) {
-      var entry = { id: item.Id, title: s.title || item.Name, cover: s.cover, plain: !!s.plain, episodes: [] };
+      var entry = { id: item.Id, title: s.title || item.Name, episodes: [] };
       if (item.Type === "Movie") {
         entry.episodes = [toPlayable(item)];
         return entry;
@@ -151,16 +151,16 @@
     state.series.forEach(function (s, i) {
       var card = document.createElement("div");
       card.className = "card";
-      card.innerHTML = s.plain ? '<img alt="">' :
+      card.innerHTML =
         '<img alt="">' +
         '<div class="shade"></div>' +
         '<div class="title"></div>' +
         '<div class="badge">' + svg(ICONS.tv) + "</div>";
-      if (!s.plain) card.querySelector(".title").textContent = s.title;
+      card.querySelector(".title").textContent = s.title;
 
       var img = card.querySelector("img");
-      var sources = [imageUrl(s.id, "Thumb"), imageUrl(s.id, "Backdrop"), imageUrl(s.id, "Primary")];
-      if (s.cover) sources.unshift(s.cover);
+      // Artwork comes from Jellyfin: clean backdrop first, then landscape thumb, then poster.
+      var sources = [imageUrl(s.id, "Backdrop"), imageUrl(s.id, "Thumb"), imageUrl(s.id, "Primary")];
       img.onerror = function () {
         if (sources.length) img.src = sources.shift();
       };
