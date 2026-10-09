@@ -10,9 +10,12 @@ Kindvriendelijke Jellyfin-player voor de **LG OLED48CX** (webOS 5, Chrome 68). Z
 | Tabs | Links / rechts | Series of Films (standaard Series) |
 | Home | Pijltjes | Kaart kiezen |
 | Home | OK | Serie afspelen (Jellyfin Next Up: verder waar je was) |
+| Home | OK ingedrukt houden | Afleveringenlijst van die serie |
 | Player | OK | Pauze / verder |
 | Player | Links / rechts | 15 seconden terug / vooruit |
-| Player | Omlaag | Naar de knoppen (pauze / Volgende) |
+| Player | Omlaag | Naar de knoppen (Pauze / Volgende / Afleveringen) |
+| Afleveringen | Omhoog / omlaag | Aflevering kiezen; links = seizoenen (als er meer dan één is) |
+| Afleveringen | OK / Terug | Afspelen / sluiten |
 | Player | CH+ / CH− | Volgende / vorige aflevering |
 | Player | Terug | Naar home (positie wordt in Jellyfin bewaard) |
 

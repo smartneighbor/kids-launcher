@@ -2,8 +2,8 @@
   "use strict";
 
   var cfg = window.KIDS_TV_CONFIG;
-  var APP_VERSION = "0.6.0";
-  var DEVICE_ID = "kidstv-lg";
+  var APP_VERSION = "0.7.0";
+  var DEVICE_ID = navigator.userAgent.indexOf("Web0S") !== -1 ? "kidstv-lg" : "kidstv-preview";
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
               PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412,
               CH_UP: 33, CH_DOWN: 34 };
@@ -102,6 +102,8 @@
   }
 
   function report(path, body) {
+    // The browser preview must not change what the kids have watched.
+    if (DEVICE_ID !== "kidstv-lg") return;
     request("POST", path, body).catch(function (err) { console.warn("Rapportage mislukt", path, err.message); });
   }
 
@@ -130,8 +132,19 @@
       Id: it.Id,
       Name: it.Name,
       MediaSourceId: it.MediaSources && it.MediaSources[0] ? it.MediaSources[0].Id : it.Id,
-      UserData: it.UserData || {}
+      UserData: it.UserData || {},
+      Season: it.ParentIndexNumber || 0,
+      Index: it.IndexNumber || 0,
+      RunTimeTicks: it.RunTimeTicks || 0,
+      HasImage: !!(it.ImageTags && it.ImageTags.Primary)
     };
+  }
+
+  // Play order: regular seasons first, specials (season 0) at the end.
+  function playOrder(a, b) {
+    var sa = a.Season === 0 ? 9999 : a.Season;
+    var sb = b.Season === 0 ? 9999 : b.Season;
+    return sa - sb || a.Index - b.Index;
   }
 
   function loadEpisodes(entry) {
@@ -141,7 +154,7 @@
     }
     return api("/Items?userId=" + state.userId + "&ParentId=" + entry.id + "&Recursive=true" +
                "&IncludeItemTypes=Episode&SortBy=ParentIndexNumber,IndexNumber&Fields=MediaSources")
-      .then(function (d) { entry.episodes = d.Items.map(toPlayable); return entry; });
+      .then(function (d) { entry.episodes = d.Items.map(toPlayable).sort(playOrder); return entry; });
   }
 
   // Every series and movie the Jellyfin user may see becomes a card. Which content that is,
@@ -173,7 +186,7 @@
     if (entry.type === "Movie") return Promise.resolve(at(entry.episodes[0].Id));
 
     return api("/Shows/NextUp?userId=" + state.userId + "&seriesId=" + entry.id +
-               "&enableResumable=true&disableFirstEpisode=false&limit=1")
+               "&enableResumable=true&enableRewatching=true&disableFirstEpisode=false&limit=1")
       .then(function (d) { return d.Items.length ? at(d.Items[0].Id) : fromStart(); })
       .catch(fromStart);
   }
@@ -324,10 +337,10 @@
         else setFocus(state.focus - COLUMNS);
         break;
       case KEY.DOWN: setFocus(state.focus + COLUMNS); break;
-      case KEY.ENTER:
       case KEY.PLAY:
         if (state.series[state.focus]) openSeries(state.series[state.focus]);
         break;
+      // OK is handled as short/long press (see homeEnterDown/Up).
       // Back on home is ignored on purpose: kids should not leave the app by accident.
     }
   }
@@ -398,7 +411,7 @@
   }
 
   // ── Controls (progress bar + buttons) ─────────────
-  // Focus is "bar" (left/right = seek) or a button index: 0 = play/pause, 1 = next.
+  // Focus is "bar" (left/right = seek) or a button index: 0 = play/pause, 1 = next, 2 = episodes.
 
   function controlsVisible() {
     return $("controls").className.indexOf("hidden") === -1;
@@ -411,6 +424,8 @@
     $("controls").className = cls;
     $("btn-play").className = "ctrl-button" + (state.ctrlFocus === 0 ? " focused" : "");
     $("btn-next").className = "ctrl-button wide" + (state.ctrlFocus === 1 ? " focused" : "");
+    $("btn-episodes").className = "ctrl-button wide" + (state.ctrlFocus === 2 ? " focused" : "") +
+      (hasEpisodeList() ? "" : " hidden");
   }
 
   function showControls() {
@@ -459,9 +474,14 @@
     updateProgress();
   }
 
+  function hasEpisodeList() {
+    return !!(state.current && state.current.series.type !== "Movie");
+  }
+
   function activateButton() {
     if (state.ctrlFocus === 0) togglePause();
     else if (state.ctrlFocus === 1) skipEpisode(1);
+    else if (state.ctrlFocus === 2) openEpisodes(state.current.series, "player");
   }
 
   function playerKey(code) {
@@ -496,12 +516,207 @@
 
     switch (code) {
       case KEY.ENTER: activateButton(); return;
-      case KEY.LEFT: state.ctrlFocus = 0; showControls(); return;
-      case KEY.RIGHT: state.ctrlFocus = 1; showControls(); return;
+      case KEY.LEFT: state.ctrlFocus = Math.max(0, state.ctrlFocus - 1); showControls(); return;
+      case KEY.RIGHT: state.ctrlFocus = Math.min(hasEpisodeList() ? 2 : 1, state.ctrlFocus + 1); showControls(); return;
       case KEY.UP: state.ctrlFocus = "bar"; showControls(); return;
       case KEY.DOWN: showControls(); return;
     }
   }
+
+
+  // ── Episodes (secondary route: pick a specific episode) ─────────────
+  // One vertical list per season, seasons in a column on the left (only when there is
+  // more than one). Opened from the player ("Afleveringen") or by holding OK on a card.
+
+  var CHECK_ICON = "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z";
+  var ROW_HEIGHT = 232; // .ep-row height + margin
+
+  function seasonName(n) {
+    return n === 0 ? "Extra's" : "Seizoen " + n;
+  }
+
+  function openEpisodes(s, from) {
+    var seasons = [];
+    s.episodes.forEach(function (ep, i) {
+      var last = seasons[seasons.length - 1];
+      if (!last || last.number !== ep.Season) {
+        last = { number: ep.Season, name: seasonName(ep.Season), items: [] };
+        seasons.push(last);
+      }
+      last.items.push(i);
+    });
+
+    // Start on the episode that is playing (from the player) or that Next Up would play.
+    var startIndex = from === "player" && state.current ? state.current.index : null;
+    var begin = startIndex !== null ? Promise.resolve({ index: startIndex }) : pickStart(s);
+
+    if (from === "player") {
+      if (!video.paused) togglePause();
+      hideControls();
+      $("pause-icon").className = "pause-icon hidden";
+    }
+
+    return begin.then(function (start) {
+      var ep = state.ep = { series: s, from: from, seasons: seasons, season: 0, row: 0,
+                            area: "list", currentIndex: start.index };
+      seasons.forEach(function (season, si) {
+        var r = season.items.indexOf(start.index);
+        if (r !== -1) { ep.season = si; ep.row = r; }
+      });
+
+      $("ep-series").textContent = s.title;
+      $("episodes").className = "screen" + (seasons.length > 1 ? "" : " single-season");
+      if (from === "home") $("home").className = "screen hidden";
+      state.screen = "episodes";
+      renderSeasons();
+      renderEpisodeList();
+    });
+  }
+
+  function renderSeasons() {
+    var ep = state.ep;
+    var box = $("ep-seasons");
+    box.innerHTML = "";
+    if (ep.seasons.length < 2) return;
+    ep.seasons.forEach(function (season, si) {
+      var el = document.createElement("div");
+      var cls = "ep-season";
+      if (si === ep.season) cls += " selected";
+      if (si === ep.season && ep.area === "seasons") cls += " focused";
+      el.className = cls;
+      el.textContent = season.name;
+      el.addEventListener("click", function () { ep.season = si; ep.row = 0; ep.area = "list"; renderSeasons(); renderEpisodeList(); });
+      box.appendChild(el);
+    });
+  }
+
+  function minutes(ticks) {
+    var m = Math.round(ticks / TICKS / 60);
+    return m ? m + " min" : "";
+  }
+
+  function renderEpisodeList() {
+    var ep = state.ep;
+    var list = $("ep-list");
+    list.innerHTML = "";
+    ep.seasons[ep.season].items.forEach(function (index, r) {
+      var e = ep.series.episodes[index];
+      var ud = e.UserData;
+      var row = document.createElement("div");
+      var cls = "ep-row";
+      if (ep.area === "list" && r === ep.row) cls += " focused";
+      if (index === ep.currentIndex) cls += " current";
+      row.className = cls;
+
+      var pct = !ud.Played && ud.PlaybackPositionTicks && e.RunTimeTicks ?
+        Math.min(100, ud.PlaybackPositionTicks / e.RunTimeTicks * 100) : 0;
+      row.innerHTML =
+        '<div class="ep-thumb"><img alt="">' +
+          (pct ? '<div class="ep-bar"><i style="width:' + pct + '%"></i></div>' : "") +
+          (ud.Played ? '<div class="ep-check"><svg viewBox="0 0 24 24"><path d="' + CHECK_ICON + '"/></svg></div>' : "") +
+        "</div>" +
+        '<div class="ep-text"><div class="ep-title"></div><div class="ep-meta"></div></div>';
+      row.querySelector(".ep-title").textContent = (e.Index ? e.Index + ". " : "") + e.Name;
+      row.querySelector(".ep-meta").textContent =
+        index === ep.currentIndex ? (ep.from === "player" ? "Speelt nu" : "Hier ga je verder") : minutes(e.RunTimeTicks);
+
+      var img = row.querySelector("img");
+      var sources = [cfg.jellyfinUrl + "/Items/" + e.Id + "/Images/Primary?maxWidth=480&quality=85",
+                     imageUrl(ep.series.id, "Thumb"), imageUrl(ep.series.id, "Backdrop")];
+      if (!e.HasImage) sources.shift();
+      img.onerror = function () { if (sources.length) img.src = sources.shift(); };
+      img.src = sources.shift();
+
+      row.addEventListener("mouseover", function () { ep.area = "list"; ep.row = r; markEpisodeFocus(); });
+      row.addEventListener("click", function () { ep.row = r; chooseEpisode(); });
+      list.appendChild(row);
+    });
+    scrollEpisodeList();
+  }
+
+  function markEpisodeFocus() {
+    var ep = state.ep;
+    var rows = $("ep-list").children;
+    for (var n = 0; n < rows.length; n++) {
+      rows[n].className = rows[n].className.replace(" focused", "") + (ep.area === "list" && n === ep.row ? " focused" : "");
+    }
+    scrollEpisodeList();
+  }
+
+  // Keep the focused row in view, with one row of context above it.
+  function scrollEpisodeList() {
+    var ep = state.ep;
+    var visible = Math.floor(($("ep-list-wrap").offsetHeight || 900) / ROW_HEIGHT);
+    var total = ep.seasons[ep.season].items.length;
+    var first = Math.max(0, Math.min(ep.row - 1, total - visible));
+    $("ep-list").style.transform = "translateY(" + (-first * ROW_HEIGHT) + "px)";
+  }
+
+  function chooseEpisode() {
+    var ep = state.ep;
+    var index = ep.seasons[ep.season].items[ep.row];
+    var e = ep.series.episodes[index];
+    var ud = e.UserData;
+    var position = !ud.Played && ud.PlaybackPositionTicks ? ud.PlaybackPositionTicks / TICKS : 0;
+
+    $("episodes").className = "screen hidden";
+    if (ep.from === "player") reportStopped(false);
+    $("player").className = "screen";
+    state.screen = "player";
+    state.ep = null;
+    playEpisode(ep.series, index, position);
+  }
+
+  function closeEpisodes() {
+    var ep = state.ep;
+    $("episodes").className = "screen hidden";
+    state.ep = null;
+    if (ep.from === "player") {
+      state.screen = "player";
+      togglePause();
+    } else {
+      $("home").className = "screen";
+      state.screen = "home";
+    }
+  }
+
+  function episodesKey(code) {
+    var ep = state.ep;
+    if (!ep) return;
+    var rows = ep.seasons[ep.season].items.length;
+
+    if (code === KEY.BACK || code === KEY.BACKSPACE || code === KEY.ESC) { closeEpisodes(); return; }
+
+    if (ep.area === "seasons") {
+      switch (code) {
+        case KEY.UP:
+          if (ep.season > 0) { ep.season--; ep.row = 0; renderSeasons(); renderEpisodeList(); }
+          break;
+        case KEY.DOWN:
+          if (ep.season < ep.seasons.length - 1) { ep.season++; ep.row = 0; renderSeasons(); renderEpisodeList(); }
+          break;
+        case KEY.RIGHT:
+        case KEY.ENTER:
+          ep.area = "list"; renderSeasons(); markEpisodeFocus();
+          break;
+      }
+      return;
+    }
+
+    switch (code) {
+      case KEY.UP: if (ep.row > 0) { ep.row--; markEpisodeFocus(); } break;
+      case KEY.DOWN: if (ep.row < rows - 1) { ep.row++; markEpisodeFocus(); } break;
+      case KEY.LEFT:
+        if (ep.seasons.length > 1) { ep.area = "seasons"; renderSeasons(); markEpisodeFocus(); }
+        break;
+      case KEY.ENTER:
+      case KEY.PLAY:
+        chooseEpisode();
+        break;
+    }
+  }
+
+  // ── Video events ─────────────────────────────────
 
   video.addEventListener("loadedmetadata", function () {
     var c = state.current;
@@ -570,16 +785,52 @@
 
   // ── Input ────────────────────────────────────────
 
+  // Holding OK on a card (home) opens the episode list; a short press plays as usual.
+  var LONG_PRESS_MS = 700;
+  var pressTimer = null;
+  var enterNeedsRelease = false;
+
+  function homeEnterDown() {
+    var s = state.series[state.focus];
+    if (!s || pressTimer) return;
+    pressTimer = setTimeout(function () {
+      pressTimer = "fired";
+      enterNeedsRelease = true;
+      if (s.type === "Movie") openSeries(s);
+      else loadEpisodes(s).then(function () { return openEpisodes(s, "home"); });
+    }, LONG_PRESS_MS);
+  }
+
+  function homeEnterUp() {
+    if (pressTimer === null) return;
+    var fired = pressTimer === "fired";
+    if (!fired) clearTimeout(pressTimer);
+    pressTimer = null;
+    if (!fired && state.series[state.focus]) openSeries(state.series[state.focus]);
+  }
+
   document.addEventListener("keydown", function (e) {
     var code = e.keyCode;
-    if (state.screen === "player") playerKey(code);
-    else homeKey(code);
     e.preventDefault();
+    // A held OK must not trigger the next screen too (e.g. the long press that opened the list).
+    if (code === KEY.ENTER && (e.repeat || enterNeedsRelease) && state.screen !== "home") return;
+    if (state.screen === "player") return playerKey(code);
+    if (state.screen === "episodes") return episodesKey(code);
+    if (state.homeFocus === "grid" && code === KEY.ENTER) return homeEnterDown();
+    if (!e.repeat) homeKey(code);
+  });
+
+  document.addEventListener("keyup", function (e) {
+    if (e.keyCode !== KEY.ENTER) return;
+    enterNeedsRelease = false;
+    if (state.screen === "home") homeEnterUp();
+    else if (pressTimer === "fired") pressTimer = null;
   });
 
   // Magic Remote pointer
   $("btn-play").addEventListener("click", function (e) { e.stopPropagation(); togglePause(); });
   $("btn-next").addEventListener("click", function (e) { e.stopPropagation(); skipEpisode(1); });
+  $("btn-episodes").addEventListener("click", function (e) { e.stopPropagation(); openEpisodes(state.current.series, "player"); });
   $("progress").addEventListener("click", function (e) {
     e.stopPropagation();
     var r = this.getBoundingClientRect();
