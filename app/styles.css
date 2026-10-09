@@ -390,13 +390,14 @@ html, body {
   top: 12px; right: 12px;
   width: 48px; height: 48px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.95);
+  background: #2E9E4F;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.ep-check svg { width: 34px; height: 34px; fill: #2E9E4F; }
+.ep-check svg { width: 34px; height: 34px; fill: #fff; }
 
 .ep-text { margin-left: 36px; }
 

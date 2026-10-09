@@ -2,7 +2,7 @@
   "use strict";
 
   var cfg = window.KIDS_TV_CONFIG;
-  var APP_VERSION = "0.8.1";
+  var APP_VERSION = "0.8.2";
   var DEVICE_ID = navigator.userAgent.indexOf("Web0S") !== -1 ? "kidstv-lg" : "kidstv-preview";
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
               PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412,
