@@ -7,7 +7,7 @@ window.KIDS_TV_CONFIG = {
   username: "Kids",
   password: "PASTE_PASSWORD",
   series: [
-    { name: "Buurman en Buurman" },
+    { name: "Buurman & Buurman" },
     { name: "Dikkie Dik" },
     { name: "Freeks Wilde Wereld" },
     { name: "Bing" },
