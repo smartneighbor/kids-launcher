@@ -1,345 +1,322 @@
-/* =============================================================
-   Kids TV Launcher — app.js
-   LG WebOS 5 (OLED48CX) — pure vanilla JS, no dependencies
-   ============================================================= */
+(function () {
+  "use strict";
 
-'use strict';
+  var cfg = window.KIDS_TV_CONFIG;
+  var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
+              PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412 };
+  var COLUMNS = 3;
+  var SEEK_SECONDS = 15;
 
-// ── Known app IDs ─────────────────────────────────────────────
-const APP_IDS = {
-  netflix:   'com.netflix.ninja',
-  youtube:   'com.webos.app.youtube',
-  videoland: null   // auto-discovered at startup via listLaunchPoints
-};
+  var ICONS = {
+    tv: "M21 6h-7.59l3.29-3.29L16 2l-4 4-4-4-.71.71L10.59 6H3c-1.1 0-2 .89-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.11-.9-2-2-2zm0 14H3V8h18v12zM9 10v8l7-4z",
+    star: "M22 9.24l-7.19-.62L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.04 4.38.38-3.32 2.88 1 4.28L12 15.4z",
+    note: "M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z",
+    headphones: "M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"
+  };
 
-// ── WebOS detection ───────────────────────────────────────────
-// webOSTV.js sets window.webOS when running on device.
-// In a browser we shim it so the app is previewable on a Mac.
-const IS_WEBOS = typeof PalmServiceBridge !== 'undefined';
+  // Same doodle layout as the tablet app (DoodleLayer.kt), scaled from dp to TV pixels.
+  var DOODLES = [
+    ["tv", 34, 24, 44, -12], ["star", 150, 45, 36, 8], ["headphones", 285, 30, 43, -8],
+    ["note", 375, 125, 39, -12], ["star", 820, 42, 39, 7], ["tv", 920, 82, 58, 4],
+    ["note", 1080, 24, 36, 10], ["star", 1162, 40, 43, -9], ["note", 1215, 113, 39, 12],
+    ["star", 55, 736, 36, 8], ["note", 185, 748, 34, -11], ["star", 315, 740, 37, 6],
+    ["note", 425, 744, 35, -8], ["headphones", 502, 754, 42, 3], ["note", 725, 742, 36, 9],
+    ["tv", 840, 750, 45, -8], ["star", 980, 746, 36, 7], ["star", 1115, 735, 40, -5]
+  ];
 
-if (!IS_WEBOS) {
-  console.warn('[DEV] Running outside WebOS — app launches will open in browser.');
-}
+  var $ = function (id) { return document.getElementById(id); };
+  var video = $("video");
 
-// ── State ─────────────────────────────────────────────────────
-let shows        = [];
-let focusIndex   = 0;
-let cols         = 3;
-let toastTimer   = null;
+  var state = {
+    screen: "home",
+    series: [],      // [{ id, title, episodes: [...] }]
+    focus: 0,
+    current: null,   // { series, index, triedHls }
+    overlayTimer: null
+  };
 
-// ── Boot ──────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', function () {
-  discoverVideolandAppId();
-  loadShows();
-  bindKeys();
-});
+  // ── Jellyfin ─────────────────────────────────────
 
-// ── Load shows.json ───────────────────────────────────────────
-function loadShows() {
-  fetch('shows.json')
-    .then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    })
-    .then(function (data) {
-      if (data.title) {
-        document.getElementById('app-title').textContent = data.title;
+  function api(path) {
+    var sep = path.indexOf("?") === -1 ? "?" : "&";
+    return fetch(cfg.jellyfinUrl + path + sep + "ApiKey=" + cfg.apiKey).then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    });
+  }
+
+  function imageUrl(itemId, type) {
+    return cfg.jellyfinUrl + "/Items/" + itemId + "/Images/" + type + "?maxWidth=900&quality=90";
+  }
+
+  function directUrl(ep) {
+    return cfg.jellyfinUrl + "/Videos/" + ep.Id + "/stream?static=true&MediaSourceId=" + ep.MediaSourceId +
+      "&ApiKey=" + cfg.apiKey;
+  }
+
+  function hlsUrl(ep) {
+    return cfg.jellyfinUrl + "/Videos/" + ep.Id + "/master.m3u8?MediaSourceId=" + ep.MediaSourceId +
+      "&DeviceId=kidstv-lg&PlaySessionId=" + Date.now() +
+      "&VideoCodec=h264&AudioCodec=aac&SegmentContainer=ts&MaxStreamingBitrate=40000000" +
+      "&ApiKey=" + cfg.apiKey;
+  }
+
+  function loadSeries(s) {
+    return api("/Items?ParentId=" + s.id + "&Recursive=true&IncludeItemTypes=Episode" +
+               "&SortBy=ParentIndexNumber,IndexNumber&Fields=MediaSources")
+      .then(function (data) {
+        return {
+          id: s.id,
+          title: s.title,
+          episodes: data.Items.map(function (it) {
+            return {
+              Id: it.Id,
+              Name: it.Name,
+              MediaSourceId: it.MediaSources && it.MediaSources[0] ? it.MediaSources[0].Id : it.Id
+            };
+          })
+        };
+      });
+  }
+
+  // ── Progress (per series: last episode + position) ─
+
+  function progressKey(seriesId) { return "kidstv.progress." + seriesId; }
+
+  function loadProgress(seriesId) {
+    try { return JSON.parse(localStorage.getItem(progressKey(seriesId))) || null; }
+    catch (e) { return null; }
+  }
+
+  function saveProgress() {
+    var c = state.current;
+    if (!c) return;
+    var ep = c.series.episodes[c.index];
+    var pos = video.currentTime || 0;
+    if (video.duration && pos > video.duration - 30) pos = 0;
+    localStorage.setItem(progressKey(c.series.id), JSON.stringify({ episodeId: ep.Id, position: pos }));
+  }
+
+  // ── Home ─────────────────────────────────────────
+
+  function svg(path) {
+    return '<svg viewBox="0 0 24 24"><path d="' + path + '"/></svg>';
+  }
+
+  function renderDoodles() {
+    var html = "";
+    DOODLES.forEach(function (d) {
+      var x = d[1] * 1.5;
+      var y = d[2] < 400 ? d[2] * 1.5 : 1080 - (800 - d[2]) * 1.5;
+      var size = d[3] * 1.5;
+      html += '<svg viewBox="0 0 24 24" style="left:' + x + "px;top:" + y + "px;width:" + size +
+              "px;height:" + size + "px;transform:rotate(" + d[4] + 'deg)"><path d="' + ICONS[d[0]] + '"/></svg>';
+    });
+    $("doodles").innerHTML = html;
+  }
+
+  function renderGrid() {
+    var grid = $("grid");
+    grid.innerHTML = "";
+    state.series.forEach(function (s, i) {
+      var card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML =
+        '<img alt="">' +
+        '<div class="shade"></div>' +
+        '<div class="title"></div>' +
+        '<div class="badge">' + svg(ICONS.tv) + "</div>";
+      card.querySelector(".title").textContent = s.title;
+
+      var img = card.querySelector("img");
+      var fallbacks = ["Backdrop", "Primary"];
+      img.onerror = function () {
+        if (fallbacks.length) img.src = imageUrl(s.id, fallbacks.shift());
+      };
+      img.src = imageUrl(s.id, "Thumb");
+
+      card.addEventListener("mouseover", function () { setFocus(i); });
+      card.addEventListener("click", function () { setFocus(i); openSeries(s); });
+      grid.appendChild(card);
+    });
+    setFocus(Math.min(state.focus, state.series.length - 1));
+  }
+
+  function setFocus(i) {
+    var cards = $("grid").children;
+    if (!cards.length) return;
+    state.focus = Math.max(0, Math.min(cards.length - 1, i));
+    for (var n = 0; n < cards.length; n++) {
+      cards[n].className = n === state.focus ? "card focused" : "card";
+    }
+  }
+
+  function showMessage(text) {
+    var m = $("message");
+    m.textContent = text;
+    m.className = "message";
+  }
+
+  function homeKey(code) {
+    switch (code) {
+      case KEY.LEFT: setFocus(state.focus - 1); break;
+      case KEY.RIGHT: setFocus(state.focus + 1); break;
+      case KEY.UP: setFocus(state.focus - COLUMNS); break;
+      case KEY.DOWN: setFocus(state.focus + COLUMNS); break;
+      case KEY.ENTER:
+      case KEY.PLAY:
+        if (state.series[state.focus]) openSeries(state.series[state.focus]);
+        break;
+      // Back on home is ignored on purpose: kids should not leave the app by accident.
+    }
+  }
+
+  // ── Player ───────────────────────────────────────
+
+  function openSeries(s) {
+    if (!s.episodes.length) return;
+    var saved = loadProgress(s.id);
+    var index = 0;
+    var position = 0;
+    if (saved) {
+      for (var i = 0; i < s.episodes.length; i++) {
+        if (s.episodes[i].Id === saved.episodeId) { index = i; position = saved.position || 0; break; }
       }
-      shows = data.shows || [];
-      applyGridConfig(shows.length);
+    }
+    $("home").className = "screen hidden";
+    $("player").className = "screen";
+    state.screen = "player";
+    playEpisode(s, index, position);
+  }
+
+  function playEpisode(s, index, position) {
+    var ep = s.episodes[index];
+    state.current = { series: s, index: index, triedHls: false, startAt: position || 0 };
+    $("episode-title").textContent = s.title + " — " + ep.Name;
+    hideOverlay();
+    $("spinner").className = "spinner";
+    video.src = directUrl(ep);
+    video.load();
+    video.play();
+  }
+
+  function closePlayer() {
+    saveProgress();
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    state.current = null;
+    hideOverlay();
+    $("spinner").className = "spinner hidden";
+    $("player").className = "screen hidden";
+    $("home").className = "screen";
+    state.screen = "home";
+  }
+
+  function showOverlay(sticky) {
+    $("overlay").className = "overlay";
+    clearTimeout(state.overlayTimer);
+    if (!sticky) state.overlayTimer = setTimeout(hideOverlay, 2500);
+  }
+
+  function hideOverlay() {
+    clearTimeout(state.overlayTimer);
+    $("overlay").className = "overlay hidden";
+  }
+
+  function togglePause() {
+    if (video.paused) { video.play(); hideOverlay(); }
+    else { video.pause(); saveProgress(); showOverlay(true); }
+  }
+
+  function seek(delta) {
+    if (!video.duration) return;
+    video.currentTime = Math.max(0, Math.min(video.duration - 1, video.currentTime + delta));
+  }
+
+  function playerKey(code) {
+    switch (code) {
+      case KEY.ENTER:
+      case KEY.PLAYPAUSE: togglePause(); break;
+      case KEY.PLAY: if (video.paused) togglePause(); break;
+      case KEY.PAUSE: if (!video.paused) togglePause(); break;
+      case KEY.LEFT: case KEY.RW: seek(-SEEK_SECONDS); break;
+      case KEY.RIGHT: case KEY.FF: seek(SEEK_SECONDS); break;
+      case KEY.BACK: case KEY.BACKSPACE: case KEY.ESC: case KEY.STOP: closePlayer(); break;
+    }
+  }
+
+  video.addEventListener("loadedmetadata", function () {
+    var c = state.current;
+    if (c && c.startAt > 0 && c.startAt < video.duration - 30) video.currentTime = c.startAt;
+  });
+
+  video.addEventListener("playing", function () {
+    $("spinner").className = "spinner hidden";
+  });
+
+  video.addEventListener("waiting", function () {
+    $("spinner").className = "spinner";
+  });
+
+  video.addEventListener("error", function () {
+    var c = state.current;
+    if (!c) return;
+    if (!c.triedHls) {
+      // Direct play of the file failed; let Jellyfin remux to HLS instead.
+      c.triedHls = true;
+      video.src = hlsUrl(c.series.episodes[c.index]);
+      video.load();
+      video.play();
+      return;
+    }
+    $("spinner").className = "spinner hidden";
+    $("episode-title").textContent = "Deze aflevering wil niet afspelen";
+    showOverlay(true);
+  });
+
+  video.addEventListener("ended", function () {
+    var c = state.current;
+    if (!c) return;
+    var next = (c.index + 1) % c.series.episodes.length;
+    playEpisode(c.series, next, 0);
+    saveProgress();
+  });
+
+  setInterval(function () {
+    if (state.screen === "player" && !video.paused) saveProgress();
+  }, 10000);
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden && state.screen === "player") { video.pause(); saveProgress(); showOverlay(true); }
+  });
+
+  // ── Input ────────────────────────────────────────
+
+  document.addEventListener("keydown", function (e) {
+    var code = e.keyCode;
+    if (state.screen === "player") playerKey(code);
+    else homeKey(code);
+    e.preventDefault();
+  });
+
+  $("player").addEventListener("click", togglePause);
+
+  // ── Boot ─────────────────────────────────────────
+
+  renderDoodles();
+
+  if (!cfg || !cfg.apiKey) {
+    showMessage("config.js ontbreekt");
+    return;
+  }
+
+  Promise.all(cfg.series.map(loadSeries))
+    .then(function (list) {
+      state.series = list;
       renderGrid();
-      hideLoading();
-      setFocus(0, false);
     })
     .catch(function (err) {
-      console.error('Failed to load shows.json:', err);
-      showToast('Kon shows niet laden.');
-      hideLoading();
+      showMessage("Kan Jellyfin niet bereiken (" + err.message + ")");
     });
-}
-
-// ── Grid sizing ───────────────────────────────────────────────
-// Keeps all cards visible on one screen regardless of show count.
-function applyGridConfig(count) {
-  var cfg;
-  if (count <= 6)  cfg = { cols: 3, w: 260, h: 390, gap: 28 };
-  else if (count <= 8)  cfg = { cols: 4, w: 235, h: 353, gap: 24 };
-  else if (count <= 10) cfg = { cols: 5, w: 210, h: 315, gap: 20 };
-  else                  cfg = { cols: 5, w: 200, h: 300, gap: 16 };
-
-  cols = cfg.cols;
-  var root = document.documentElement;
-  root.style.setProperty('--cols',     cfg.cols);
-  root.style.setProperty('--card-w',   cfg.w  + 'px');
-  root.style.setProperty('--card-h',   cfg.h  + 'px');
-  root.style.setProperty('--grid-gap', cfg.gap + 'px');
-}
-
-// ── Render ────────────────────────────────────────────────────
-function renderGrid() {
-  var grid = document.getElementById('grid');
-  grid.innerHTML = '';
-
-  shows.forEach(function (show, idx) {
-    var card = document.createElement('div');
-    card.className   = 'card';
-    card.dataset.idx = idx;
-    card.setAttribute('role', 'gridcell');
-    card.setAttribute('tabindex', idx === 0 ? '0' : '-1');
-
-    // Poster image
-    var imgWrap = document.createElement('div');
-    imgWrap.className = 'card-image';
-
-    var img = document.createElement('img');
-    img.alt = show.title;
-    img.src = show.image || '';
-    img.onerror = function () {
-      imgWrap.removeChild(img);
-      var fallback = document.createElement('div');
-      fallback.className   = 'img-fallback';
-      fallback.textContent = show.title.charAt(0).toUpperCase();
-      imgWrap.appendChild(fallback);
-    };
-    imgWrap.appendChild(img);
-    card.appendChild(imgWrap);
-
-    // Platform badge
-    var badge = document.createElement('div');
-    badge.className = 'badge badge-' + show.platform;
-    badge.textContent = badgeLabel(show.platform);
-    badge.setAttribute('aria-label', show.platform);
-    card.appendChild(badge);
-
-    // Title
-    var title = document.createElement('div');
-    title.className   = 'card-title';
-    title.textContent = show.title;
-    card.appendChild(title);
-
-    // Interaction
-    card.addEventListener('click', function () { activateShow(idx); });
-    card.addEventListener('mouseenter', function () { setFocus(idx, false); });
-
-    grid.appendChild(card);
-  });
-}
-
-function badgeLabel(platform) {
-  switch (platform) {
-    case 'netflix':   return 'N';
-    case 'youtube':   return '▶';
-    case 'videoland': return 'V';
-    case 'direct':    return '▶';
-    default:          return '?';
-  }
-}
-
-// ── Focus management ──────────────────────────────────────────
-function setFocus(idx, scroll) {
-  if (idx < 0 || idx >= shows.length) return;
-
-  var cards = document.querySelectorAll('.card');
-  cards.forEach(function (c, i) {
-    c.classList.toggle('focused', i === idx);
-    c.setAttribute('tabindex', i === idx ? '0' : '-1');
-  });
-
-  focusIndex = idx;
-  if (scroll !== false) cards[idx].scrollIntoView({ block: 'nearest' });
-}
-
-function moveFocus(dir) {
-  var total = shows.length;
-  var next  = focusIndex;
-
-  switch (dir) {
-    case 'right': next = Math.min(focusIndex + 1, total - 1);        break;
-    case 'left':  next = Math.max(focusIndex - 1, 0);                break;
-    case 'down':  next = Math.min(focusIndex + cols, total - 1);     break;
-    case 'up':    next = Math.max(focusIndex - cols, 0);             break;
-  }
-
-  if (next !== focusIndex) setFocus(next, true);
-}
-
-// ── Key handling ──────────────────────────────────────────────
-// WebOS Magic Remote D-pad → standard arrow keyCodes
-// Back button → 461 (WebOS-specific)
-function bindKeys() {
-  document.addEventListener('keydown', function (e) {
-    switch (e.keyCode) {
-      case 37: moveFocus('left');  e.preventDefault(); break;  // ←
-      case 38: moveFocus('up');    e.preventDefault(); break;  // ↑
-      case 39: moveFocus('right'); e.preventDefault(); break;  // →
-      case 40: moveFocus('down');  e.preventDefault(); break;  // ↓
-      case 13: activateShow(focusIndex); e.preventDefault(); break;  // OK / Enter
-      case 461: /* Back — no-op, this IS the launcher */ e.preventDefault(); break;
-    }
-  });
-}
-
-// ── Activate ──────────────────────────────────────────────────
-function activateShow(idx) {
-  var show = shows[idx];
-  if (!show) return;
-
-  switch (show.platform) {
-    case 'netflix':
-      launchApp(APP_IDS.netflix, {
-        contentId: String(show.contentId),
-        mediaType: show.mediaType || 'show'
-      });
-      break;
-
-    case 'youtube':
-      launchApp(APP_IDS.youtube, {
-        contentTarget: show.contentTarget
-      });
-      break;
-
-    case 'videoland':
-      if (!APP_IDS.videoland) {
-        showToast('Videoland app-ID nog niet gevonden. Probeer opnieuw.');
-        discoverVideolandAppId();
-        return;
-      }
-      launchApp(APP_IDS.videoland, {
-        contentTarget: show.contentTarget
-      });
-      break;
-
-    case 'direct':
-      playDirectUrl(show.url);
-      break;
-
-    default:
-      showToast('Onbekend platform: ' + show.platform);
-  }
-}
-
-// ── App launcher ──────────────────────────────────────────────
-function launchApp(appId, params) {
-  if (!appId) {
-    showToast('App-ID onbekend.');
-    return;
-  }
-
-  // Browser dev fallback: open equivalent web URL instead of launching TV app
-  if (!IS_WEBOS) {
-    var url = null;
-    if (appId === APP_IDS.netflix && params.contentId) {
-      url = 'https://www.netflix.com/watch/' + params.contentId;
-    } else if (appId === APP_IDS.youtube && params.contentTarget) {
-      url = params.contentTarget;
-    } else if (params.contentTarget) {
-      url = params.contentTarget;
-    }
-    if (url) {
-      console.log('[DEV] Opening in browser:', url);
-      window.open(url, '_blank');
-    } else {
-      console.log('[DEV] Would launch app:', appId, params);
-    }
-    return;
-  }
-
-  // First check if the app is installed
-  webOS.service.request('luna://com.webos.applicationManager', {
-    method: 'getAppLoadStatus',
-    parameters: { appId: appId },
-    onSuccess: function (r) {
-      if (!r.exist) {
-        showToast('App niet geïnstalleerd: ' + appId);
-        return;
-      }
-      // Then launch it
-      webOS.service.request('luna://com.webos.applicationManager', {
-        method: 'launch',
-        parameters: { id: appId, params: params },
-        onSuccess: function () {
-          console.log('Launched:', appId, params);
-        },
-        onFailure: function (e) {
-          showToast('Kon niet openen: ' + (e.errorText || appId));
-          console.error('launch failed', e);
-        }
-      });
-    },
-    onFailure: function (e) {
-      showToast('Fout: ' + (e.errorText || 'onbekend'));
-      console.error('getAppLoadStatus failed', e);
-    }
-  });
-}
-
-// ── In-app video (direct URL, no DRM) ─────────────────────────
-function playDirectUrl(url) {
-  if (!url) { showToast('Geen video-URL opgegeven.'); return; }
-  var player = document.getElementById('player');
-  if (!player) {
-    player = document.createElement('video');
-    player.id       = 'player';
-    player.controls = false;
-    player.autoplay = true;
-    player.style.cssText =
-      'position:fixed;inset:0;width:100%;height:100%;background:#000;z-index:50;';
-
-    // Press Back to close video and return to grid
-    player.addEventListener('keydown', function (e) {
-      if (e.keyCode === 461 || e.keyCode === 27) {
-        player.pause();
-        document.body.removeChild(player);
-        setFocus(focusIndex, false);
-      }
-    });
-    document.body.appendChild(player);
-  }
-  player.src = url;
-  player.focus();
-}
-
-// ── Videoland app ID discovery ────────────────────────────────
-// Called at startup. Scans all installed apps and stores the one
-// that matches 'videoland'. Logs the found ID so you can hardcode
-// it in APP_IDS if auto-discovery is too slow.
-function discoverVideolandAppId() {
-  webOS.service.request('luna://com.webos.applicationManager', {
-    method: 'listLaunchPoints',
-    onSuccess: function (r) {
-      var points = r.launchPoints || [];
-      var found  = points.find(function (p) {
-        return (p.id   && p.id.toLowerCase().includes('videoland')) ||
-               (p.title && p.title.toLowerCase().includes('videoland'));
-      });
-
-      if (found) {
-        APP_IDS.videoland = found.id;
-        console.log('[KidsTV] Videoland app ID:', found.id);
-      } else {
-        console.warn('[KidsTV] Videoland not found in launch points.');
-      }
-    },
-    onFailure: function (e) {
-      console.warn('[KidsTV] listLaunchPoints failed:', e);
-    }
-  });
-}
-
-// ── Toast ─────────────────────────────────────────────────────
-function showToast(msg, durationMs) {
-  var toast = document.getElementById('toast');
-  toast.textContent = msg;
-  toast.classList.remove('hidden');
-
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(function () {
-    toast.classList.add('hidden');
-  }, durationMs || 3500);
-}
-
-// ── Loading screen ────────────────────────────────────────────
-function hideLoading() {
-  var el = document.getElementById('loading');
-  if (el) el.classList.add('hidden');
-}
+})();

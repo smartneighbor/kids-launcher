@@ -1,57 +1,32 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────────
-# deploy.sh  —  package and sideload Kids TV Launcher to the LG TV
+# deploy.sh — package and sideload Kids TV to the LG TV via Developer Mode.
 #
 # Prerequisites:
-#   1. ares-cli installed:  npm i -g @webosose/ares-cli
-#   2. TV in Developer Mode (LG Content Store → "Developer Mode" app)
-#   3. TV added to ares:    ares-setup-device
-#      Give it the name "lgtv" (or change DEVICE below)
+#   - npm i -g @webos-tools/cli
+#   - TV registered in ares as "tv" (ares-setup-device), Developer Mode on
+#   - config.js present (copy config.example.js and fill in the Jellyfin API key)
 #
 # Usage:
 #   ./deploy.sh            # package + install + launch
-#   ./deploy.sh --package  # package only (creates .ipk)
-#   ./deploy.sh --install  # install already-built .ipk
-# ──────────────────────────────────────────────────────────────────
+#   ./deploy.sh --package  # package only
 
 set -euo pipefail
+cd "$(dirname "$0")"
 
-DEVICE="${DEVICE:-lgtv}"
-APP_ID="com.smartneighbor.kidslauncher"
+DEVICE="${DEVICE:-tv}"
+APP_ID=$(python3 -c 'import json; print(json.load(open("appinfo.json"))["id"])')
+VERSION=$(python3 -c 'import json; print(json.load(open("appinfo.json"))["version"])')
 PKG_DIR="./dist"
-IPK="$PKG_DIR/${APP_ID}_1.0.0_all.ipk"
+IPK="$PKG_DIR/${APP_ID}_${VERSION}_all.ipk"
 
-# ── Parse args ───────────────────────────────────────────────────
-PACKAGE_ONLY=false
-INSTALL_ONLY=false
-for arg in "$@"; do
-  case $arg in
-    --package) PACKAGE_ONLY=true ;;
-    --install) INSTALL_ONLY=true ;;
-  esac
-done
+[[ -f config.js ]] || { echo "ERROR: config.js missing (see config.example.js)"; exit 1; }
+command -v ares-package >/dev/null || { echo "ERROR: run npm i -g @webos-tools/cli"; exit 1; }
 
-# ── Helpers ──────────────────────────────────────────────────────
-need_cmd() { command -v "$1" &>/dev/null || { echo "ERROR: '$1' not found. $2"; exit 1; }; }
+rm -rf "$PKG_DIR"
+mkdir -p "$PKG_DIR"
+ares-package . --outdir "$PKG_DIR" -e dist -e README.md -e deploy.sh -e config.example.js -e .git -e .gitignore
+[[ "${1:-}" == "--package" ]] && exit 0
 
-need_cmd ares-package "Run: npm i -g @webosose/ares-cli"
-
-# ── Package ──────────────────────────────────────────────────────
-if ! $INSTALL_ONLY; then
-  echo "→ Packaging…"
-  mkdir -p "$PKG_DIR"
-  ares-package . --outdir "$PKG_DIR"
-  echo "  Built: $IPK"
-fi
-
-if $PACKAGE_ONLY; then exit 0; fi
-
-# ── Install ──────────────────────────────────────────────────────
-echo "→ Installing on device '$DEVICE'…"
 ares-install --device "$DEVICE" "$IPK"
-
-# ── Launch ───────────────────────────────────────────────────────
-echo "→ Launching $APP_ID…"
 ares-launch --device "$DEVICE" "$APP_ID"
-
-echo "✓ Done."
+echo "✓ $APP_ID $VERSION installed and launched on $DEVICE"

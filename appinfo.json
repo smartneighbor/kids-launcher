@@ -1,14 +1,14 @@
 {
-  "id": "com.smartneighbor.kidslauncher",
+  "id": "nl.joey.kidstv",
   "title": "Kids TV",
   "main": "index.html",
   "type": "web",
   "icon": "icon_80.png",
   "largeIcon": "icon_130.png",
-  "version": "1.0.0",
-  "vendor": "smartneighbor",
-  "description": "Simple TV launcher for kids — pick a show and go.",
+  "version": "0.1.0",
+  "vendor": "Joey",
+  "description": "Kindvriendelijke Jellyfin-player voor de LG OLED.",
   "resolution": "1920x1080",
-  "transparent": false,
-  "useNativeScroll": false
+  "disableBackHistoryAPI": true,
+  "transparent": false
 }
