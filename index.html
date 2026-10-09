@@ -24,11 +24,28 @@
 
   <div id="player" class="screen hidden">
     <video id="video"></video>
-    <div id="overlay" class="overlay hidden">
+    <div id="pause-icon" class="pause-icon hidden">
       <div class="big-button">
         <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
       </div>
+    </div>
+    <div id="controls" class="controls hidden">
       <div id="episode-title" class="episode-title"></div>
+      <div class="progress-row">
+        <span id="time-current" class="time">0:00</span>
+        <div id="progress" class="progress"><div id="progress-fill" class="progress-fill"><i></i></div></div>
+        <span id="time-total" class="time">0:00</span>
+      </div>
+      <div class="buttons">
+        <div id="btn-play" class="ctrl-button" data-index="0">
+          <svg class="icon-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+        <div id="btn-next" class="ctrl-button wide" data-index="1">
+          <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+          <span>Volgende</span>
+        </div>
+      </div>
     </div>
     <div id="spinner" class="spinner hidden"></div>
   </div>

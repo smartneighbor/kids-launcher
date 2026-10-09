@@ -3,7 +3,8 @@
 
   var cfg = window.KIDS_TV_CONFIG;
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
-              PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412 };
+              PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412,
+              CH_UP: 33, CH_DOWN: 34 };
   var COLUMNS = 3;
   var SEEK_SECONDS = 15;
 
@@ -31,7 +32,8 @@
     screen: "home",
     series: [],      // [{ id, title, episodes: [...] }]
     focus: 0,
-    current: null,   // { series, index, triedHls }
+    current: null,   // { series, index, triedHls, startAt }
+    ctrlFocus: "bar",
     overlayTimer: null
   };
 
@@ -91,9 +93,14 @@
   function saveProgress() {
     var c = state.current;
     if (!c) return;
-    var ep = c.series.episodes[c.index];
+    var index = c.index;
     var pos = video.currentTime || 0;
-    if (video.duration && pos > video.duration - 30) pos = 0;
+    if (video.duration && pos > video.duration - 30) {
+      // Episode is (nearly) finished: next time start with the next one.
+      index = (index + 1) % c.series.episodes.length;
+      pos = 0;
+    }
+    var ep = c.series.episodes[index];
     localStorage.setItem(progressKey(c.series.id), JSON.stringify({ episodeId: ep.Id, position: pos }));
   }
 
@@ -193,11 +200,21 @@
     var ep = s.episodes[index];
     state.current = { series: s, index: index, triedHls: false, startAt: position || 0 };
     $("episode-title").textContent = s.title + " — " + ep.Name;
-    hideOverlay();
+    updateProgress();
+    $("pause-icon").className = "pause-icon hidden";
     $("spinner").className = "spinner";
     video.src = directUrl(ep);
     video.load();
     video.play();
+  }
+
+  function skipEpisode(delta) {
+    var c = state.current;
+    if (!c) return;
+    var n = c.series.episodes.length;
+    playEpisode(c.series, (c.index + delta + n) % n, 0);
+    saveProgress();
+    showControls();
   }
 
   function closePlayer() {
@@ -206,49 +223,130 @@
     video.removeAttribute("src");
     video.load();
     state.current = null;
-    hideOverlay();
+    hideControls();
+    $("pause-icon").className = "pause-icon hidden";
     $("spinner").className = "spinner hidden";
     $("player").className = "screen hidden";
     $("home").className = "screen";
     state.screen = "home";
   }
 
-  function showOverlay(sticky) {
-    $("overlay").className = "overlay";
-    clearTimeout(state.overlayTimer);
-    if (!sticky) state.overlayTimer = setTimeout(hideOverlay, 2500);
+  // ── Controls (progress bar + buttons) ─────────────
+  // Focus is "bar" (left/right = seek) or a button index: 0 = play/pause, 1 = next.
+
+  var CONTROLS_HIDE_MS = 4000;
+
+  function controlsVisible() {
+    return $("controls").className.indexOf("hidden") === -1;
   }
 
-  function hideOverlay() {
+  function renderControls() {
+    var cls = "controls";
+    if (video.paused) cls += " paused";
+    if (state.ctrlFocus === "bar") cls += " focus-bar";
+    $("controls").className = cls;
+    $("btn-play").className = "ctrl-button" + (state.ctrlFocus === 0 ? " focused" : "");
+    $("btn-next").className = "ctrl-button wide" + (state.ctrlFocus === 1 ? " focused" : "");
+  }
+
+  function showControls() {
+    if (!controlsVisible()) state.ctrlFocus = "bar";
+    updateProgress();
+    renderControls();
     clearTimeout(state.overlayTimer);
-    $("overlay").className = "overlay hidden";
+    if (!video.paused) state.overlayTimer = setTimeout(hideControls, CONTROLS_HIDE_MS);
+  }
+
+  function hideControls() {
+    clearTimeout(state.overlayTimer);
+    $("controls").className = "controls hidden";
+  }
+
+  function formatTime(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function updateProgress() {
+    var d = video.duration || 0;
+    var t = video.currentTime || 0;
+    $("progress-fill").style.width = d ? (t / d * 100) + "%" : "0";
+    $("time-current").textContent = formatTime(t);
+    $("time-total").textContent = formatTime(d);
   }
 
   function togglePause() {
-    if (video.paused) { video.play(); hideOverlay(); }
-    else { video.pause(); saveProgress(); showOverlay(true); }
+    if (video.paused) {
+      video.play();
+      $("pause-icon").className = "pause-icon hidden";
+    } else {
+      video.pause();
+      saveProgress();
+      $("pause-icon").className = "pause-icon";
+    }
+    showControls();
   }
 
   function seek(delta) {
     if (!video.duration) return;
     video.currentTime = Math.max(0, Math.min(video.duration - 1, video.currentTime + delta));
+    updateProgress();
+  }
+
+  function activateButton() {
+    if (state.ctrlFocus === 0) togglePause();
+    else if (state.ctrlFocus === 1) skipEpisode(1);
   }
 
   function playerKey(code) {
+    var visible = controlsVisible();
+
     switch (code) {
-      case KEY.ENTER:
-      case KEY.PLAYPAUSE: togglePause(); break;
-      case KEY.PLAY: if (video.paused) togglePause(); break;
-      case KEY.PAUSE: if (!video.paused) togglePause(); break;
-      case KEY.LEFT: case KEY.RW: seek(-SEEK_SECONDS); break;
-      case KEY.RIGHT: case KEY.FF: seek(SEEK_SECONDS); break;
-      case KEY.BACK: case KEY.BACKSPACE: case KEY.ESC: case KEY.STOP: closePlayer(); break;
+      case KEY.BACK: case KEY.BACKSPACE: case KEY.ESC: case KEY.STOP:
+        closePlayer();
+        return;
+      case KEY.PLAYPAUSE: togglePause(); return;
+      case KEY.PLAY: if (video.paused) togglePause(); return;
+      case KEY.PAUSE: if (!video.paused) togglePause(); return;
+      case KEY.RW: seek(-SEEK_SECONDS); showControls(); return;
+      case KEY.FF: seek(SEEK_SECONDS); showControls(); return;
+      case KEY.CH_UP: skipEpisode(1); return;
+      case KEY.CH_DOWN: skipEpisode(-1); return;
+    }
+
+    if (!visible || state.ctrlFocus === "bar") {
+      switch (code) {
+        case KEY.ENTER: togglePause(); return;
+        case KEY.LEFT: seek(-SEEK_SECONDS); showControls(); return;
+        case KEY.RIGHT: seek(SEEK_SECONDS); showControls(); return;
+        case KEY.DOWN:
+          if (visible) state.ctrlFocus = 0;
+          showControls();
+          return;
+        case KEY.UP: showControls(); return;
+      }
+      return;
+    }
+
+    switch (code) {
+      case KEY.ENTER: activateButton(); return;
+      case KEY.LEFT: state.ctrlFocus = 0; showControls(); return;
+      case KEY.RIGHT: state.ctrlFocus = 1; showControls(); return;
+      case KEY.UP: state.ctrlFocus = "bar"; showControls(); return;
+      case KEY.DOWN: showControls(); return;
     }
   }
 
   video.addEventListener("loadedmetadata", function () {
     var c = state.current;
     if (c && c.startAt > 0 && c.startAt < video.duration - 30) video.currentTime = c.startAt;
+    updateProgress();
+  });
+
+  video.addEventListener("timeupdate", function () {
+    if (controlsVisible()) updateProgress();
   });
 
   video.addEventListener("playing", function () {
@@ -263,7 +361,7 @@
     var c = state.current;
     if (!c) return;
     if (!c.triedHls) {
-      // Direct play of the file failed; let Jellyfin remux to HLS instead.
+      // Direct play of the file failed; let Jellyfin remux/transcode to HLS instead.
       c.triedHls = true;
       video.src = hlsUrl(c.series.episodes[c.index]);
       video.load();
@@ -272,15 +370,12 @@
     }
     $("spinner").className = "spinner hidden";
     $("episode-title").textContent = "Deze aflevering wil niet afspelen";
-    showOverlay(true);
+    state.ctrlFocus = 1;
+    showControls();
   });
 
   video.addEventListener("ended", function () {
-    var c = state.current;
-    if (!c) return;
-    var next = (c.index + 1) % c.series.episodes.length;
-    playEpisode(c.series, next, 0);
-    saveProgress();
+    if (state.current) skipEpisode(1);
   });
 
   setInterval(function () {
@@ -288,7 +383,7 @@
   }, 10000);
 
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden && state.screen === "player") { video.pause(); saveProgress(); showOverlay(true); }
+    if (document.hidden && state.screen === "player" && !video.paused) togglePause();
   });
 
   // ── Input ────────────────────────────────────────
@@ -300,7 +395,17 @@
     e.preventDefault();
   });
 
+  // Magic Remote pointer
+  $("btn-play").addEventListener("click", function (e) { e.stopPropagation(); togglePause(); });
+  $("btn-next").addEventListener("click", function (e) { e.stopPropagation(); skipEpisode(1); });
+  $("progress").addEventListener("click", function (e) {
+    e.stopPropagation();
+    var r = this.getBoundingClientRect();
+    if (video.duration) video.currentTime = (e.clientX - r.left) / r.width * video.duration;
+    showControls();
+  });
   $("player").addEventListener("click", togglePause);
+  $("player").addEventListener("mousemove", function () { if (state.screen === "player") showControls(); });
 
   // ── Boot ─────────────────────────────────────────
 
