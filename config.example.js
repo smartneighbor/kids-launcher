@@ -3,7 +3,9 @@
 // Optional `title` overrides the Jellyfin name on the card. Artwork comes from Jellyfin.
 window.KIDS_TV_CONFIG = {
   jellyfinUrl: "http://192.168.1.31:8096",
-  apiKey: "PASTE_JELLYFIN_API_KEY",
+  // Jellyfin user the app logs in as (watched state, resume and Next Up live in Jellyfin).
+  username: "Kids",
+  password: "PASTE_PASSWORD",
   series: [
     { name: "Buurman en Buurman" },
     { name: "Dikkie Dik" },

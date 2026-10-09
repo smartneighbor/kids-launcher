@@ -2,11 +2,15 @@
   "use strict";
 
   var cfg = window.KIDS_TV_CONFIG;
+  var APP_VERSION = "0.4.0";
+  var DEVICE_ID = "kidstv-lg";
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
               PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412,
               CH_UP: 33, CH_DOWN: 34 };
   var COLUMNS = 3;
   var SEEK_SECONDS = 15;
+  var TICKS = 10000000; // Jellyfin ticks per second
+  var CONTROLS_HIDE_MS = 4000;
 
   var ICONS = {
     tv: "M21 6h-7.59l3.29-3.29L16 2l-4 4-4-4-.71.71L10.59 6H3c-1.1 0-2 .89-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.11-.9-2-2-2zm0 14H3V8h18v12zM9 10v8l7-4z",
@@ -30,22 +34,75 @@
 
   var state = {
     screen: "home",
-    series: [],      // [{ id, title, episodes: [...] }]
+    series: [],      // [{ id, title, type, episodes: [{ Id, Name, MediaSourceId }] }]
     focus: 0,
-    current: null,   // { series, index, triedHls, startAt }
+    current: null,   // { series, index, playSessionId, playMethod, startAt, reported }
     ctrlFocus: "bar",
-    overlayTimer: null
+    overlayTimer: null,
+    token: null,
+    userId: null
   };
 
-  // ── Jellyfin ─────────────────────────────────────
+  // ── Jellyfin: auth ───────────────────────────────
+  // The app logs in as the Jellyfin user from config.js, so Jellyfin keeps track of
+  // what is watched (resume position, played state, Next Up) like any other client.
 
-  function api(path) {
-    var sep = path.indexOf("?") === -1 ? "?" : "&";
-    return fetch(cfg.jellyfinUrl + path + sep + "ApiKey=" + cfg.apiKey).then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
+  function authHeader() {
+    var h = 'MediaBrowser Client="Kids TV", Device="LG TV", DeviceId="' + DEVICE_ID + '", Version="' + APP_VERSION + '"';
+    if (state.token) h += ', Token="' + state.token + '"';
+    return h;
+  }
+
+  function request(method, path, body) {
+    var opts = { method: method, headers: { "Authorization": authHeader() } };
+    if (body) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(cfg.jellyfinUrl + path, opts).then(function (res) {
+      if (!res.ok) {
+        var err = new Error("HTTP " + res.status);
+        err.status = res.status;
+        throw err;
+      }
+      return res.status === 204 ? null : res.json();
     });
   }
+
+  function api(path) {
+    return request("GET", path).catch(function (err) {
+      if (err.status !== 401) throw err;
+      return login().then(function () { return request("GET", path); });
+    });
+  }
+
+  function login() {
+    state.token = null;
+    return request("POST", "/Users/AuthenticateByName", { Username: cfg.username, Pw: cfg.password })
+      .then(function (res) {
+        state.token = res.AccessToken;
+        state.userId = res.User.Id;
+        localStorage.setItem("kidstv.auth", JSON.stringify({ token: state.token, userId: state.userId }));
+      });
+  }
+
+  function restoreLogin() {
+    try {
+      var saved = JSON.parse(localStorage.getItem("kidstv.auth"));
+      if (saved && saved.token) {
+        state.token = saved.token;
+        state.userId = saved.userId;
+        return request("GET", "/Users/Me").catch(login);
+      }
+    } catch (e) { /* fall through */ }
+    return login();
+  }
+
+  function report(path, body) {
+    request("POST", path, body).catch(function (err) { console.warn("Rapportage mislukt", path, err.message); });
+  }
+
+  // ── Jellyfin: URLs ───────────────────────────────
 
   function imageUrl(itemId, type) {
     return cfg.jellyfinUrl + "/Items/" + itemId + "/Images/" + type + "?maxWidth=900&quality=90";
@@ -53,29 +110,32 @@
 
   function directUrl(ep) {
     return cfg.jellyfinUrl + "/Videos/" + ep.Id + "/stream?static=true&MediaSourceId=" + ep.MediaSourceId +
-      "&ApiKey=" + cfg.apiKey;
+      "&ApiKey=" + state.token;
   }
 
-  function hlsUrl(ep) {
+  function hlsUrl(ep, playSessionId) {
     return cfg.jellyfinUrl + "/Videos/" + ep.Id + "/master.m3u8?MediaSourceId=" + ep.MediaSourceId +
-      "&DeviceId=kidstv-lg&PlaySessionId=" + Date.now() +
+      "&DeviceId=" + DEVICE_ID + "&PlaySessionId=" + playSessionId +
       "&VideoCodec=h264&AudioCodec=aac&SegmentContainer=ts&MaxStreamingBitrate=40000000" +
-      "&ApiKey=" + cfg.apiKey;
+      "&ApiKey=" + state.token;
   }
+
+  // ── Jellyfin: library ────────────────────────────
 
   function toPlayable(it) {
     return {
       Id: it.Id,
       Name: it.Name,
-      MediaSourceId: it.MediaSources && it.MediaSources[0] ? it.MediaSources[0].Id : it.Id
+      MediaSourceId: it.MediaSources && it.MediaSources[0] ? it.MediaSources[0].Id : it.Id,
+      UserData: it.UserData || {}
     };
   }
 
   // Config entries use either a Jellyfin id or an exact name ("Bing", "Dikkertje Dap").
   function findItem(s) {
-    if (s.id) return api("/Items?Ids=" + s.id + "&Fields=MediaSources").then(function (d) { return d.Items[0]; });
-    return api("/Items?Recursive=true&IncludeItemTypes=Series,Movie&Fields=MediaSources&searchTerm=" +
-               encodeURIComponent(s.name))
+    var base = "/Items?userId=" + state.userId + "&Fields=MediaSources";
+    if (s.id) return api(base + "&Ids=" + s.id).then(function (d) { return d.Items[0]; });
+    return api(base + "&Recursive=true&IncludeItemTypes=Series,Movie&searchTerm=" + encodeURIComponent(s.name))
       .then(function (data) {
         var want = s.name.toLowerCase();
         var exact = data.Items.filter(function (it) { return it.Name.toLowerCase() === want; });
@@ -85,53 +145,90 @@
       });
   }
 
-  function loadSeries(s) {
-    return findItem(s).then(function (item) {
-      var entry = { id: item.Id, title: s.title || item.Name, episodes: [] };
-      if (item.Type === "Movie") {
-        entry.episodes = [toPlayable(item)];
-        return entry;
-      }
-      return api("/Items?ParentId=" + item.Id + "&Recursive=true&IncludeItemTypes=Episode" +
-                 "&SortBy=ParentIndexNumber,IndexNumber&Fields=MediaSources")
-        .then(function (data) {
-          entry.episodes = data.Items.map(toPlayable);
-          return entry;
-        });
-    }).catch(function (err) {
-      console.warn("Overgeslagen:", s.name || s.id, err.message);
-      return null;
-    });
-  }
-
-  // ── Progress (per series: last episode + position) ─
-
-  function progressKey(seriesId) { return "kidstv.progress." + seriesId; }
-
-  function loadProgress(seriesId) {
-    try { return JSON.parse(localStorage.getItem(progressKey(seriesId))) || null; }
-    catch (e) { return null; }
-  }
-
-  function saveProgress() {
-    var c = state.current;
-    if (!c) return;
-    var index = c.index;
-    var pos = video.currentTime || 0;
-    if (video.duration && pos > video.duration - 30) {
-      // Episode is (nearly) finished: next time start with the next one.
-      index = (index + 1) % c.series.episodes.length;
-      pos = 0;
+  function loadEpisodes(entry) {
+    if (entry.type === "Movie") {
+      return api("/Items?userId=" + state.userId + "&Fields=MediaSources&Ids=" + entry.id)
+        .then(function (d) { entry.episodes = d.Items.map(toPlayable); return entry; });
     }
-    var ep = c.series.episodes[index];
-    localStorage.setItem(progressKey(c.series.id), JSON.stringify({ episodeId: ep.Id, position: pos }));
+    return api("/Items?userId=" + state.userId + "&ParentId=" + entry.id + "&Recursive=true" +
+               "&IncludeItemTypes=Episode&SortBy=ParentIndexNumber,IndexNumber&Fields=MediaSources")
+      .then(function (d) { entry.episodes = d.Items.map(toPlayable); return entry; });
+  }
+
+  function loadSeries(s) {
+    return findItem(s)
+      .then(function (item) {
+        return loadEpisodes({ id: item.Id, title: s.title || item.Name, type: item.Type, episodes: [] });
+      })
+      .catch(function (err) {
+        console.warn("Overgeslagen:", s.name || s.id, err.message);
+        return null;
+      });
+  }
+
+  // Where to start: Jellyfin's Next Up (resumes a half-watched episode, otherwise the
+  // episode after the last watched one). Nothing watched yet or all done: first episode.
+  function pickStart(entry) {
+    var fromStart = function () { return { index: 0, position: 0 }; };
+    var at = function (id) {
+      for (var i = 0; i < entry.episodes.length; i++) {
+        if (entry.episodes[i].Id === id) {
+          var ud = entry.episodes[i].UserData;
+          return { index: i, position: ud.Played ? 0 : (ud.PlaybackPositionTicks || 0) / TICKS };
+        }
+      }
+      return fromStart();
+    };
+
+    if (entry.type === "Movie") return Promise.resolve(at(entry.episodes[0].Id));
+
+    return api("/Shows/NextUp?userId=" + state.userId + "&seriesId=" + entry.id +
+               "&enableResumable=true&disableFirstEpisode=false&limit=1")
+      .then(function (d) { return d.Items.length ? at(d.Items[0].Id) : fromStart(); })
+      .catch(fromStart);
+  }
+
+  // ── Jellyfin: playback reporting ─────────────────
+
+  function playbackInfo(extra) {
+    var c = state.current;
+    var ep = c.series.episodes[c.index];
+    var info = {
+      ItemId: ep.Id,
+      MediaSourceId: ep.MediaSourceId,
+      PlaySessionId: c.playSessionId,
+      PlayMethod: c.playMethod,
+      PositionTicks: Math.round((video.currentTime || 0) * TICKS),
+      IsPaused: video.paused,
+      CanSeek: true
+    };
+    for (var k in extra) info[k] = extra[k];
+    return info;
+  }
+
+  function reportStart() {
+    var c = state.current;
+    if (!c || c.reported) return;
+    c.reported = true;
+    report("/Sessions/Playing", playbackInfo());
+  }
+
+  function reportProgress(eventName) {
+    var c = state.current;
+    if (!c || !c.reported) return;
+    report("/Sessions/Playing/Progress", playbackInfo({ EventName: eventName || "timeupdate" }));
+  }
+
+  function reportStopped(ended) {
+    var c = state.current;
+    if (!c || !c.reported) return;
+    c.reported = false;
+    var extra = {};
+    if (ended && video.duration) extra.PositionTicks = Math.round(video.duration * TICKS);
+    report("/Sessions/Playing/Stopped", playbackInfo(extra));
   }
 
   // ── Home ─────────────────────────────────────────
-
-  function svg(path) {
-    return '<svg viewBox="0 0 24 24"><path d="' + path + '"/></svg>';
-  }
 
   function renderDoodles() {
     var html = "";
@@ -151,11 +248,7 @@
     state.series.forEach(function (s, i) {
       var card = document.createElement("div");
       card.className = "card";
-      card.innerHTML =
-        '<img alt="">' +
-        '<div class="shade"></div>' +
-        '<div class="title"></div>' +
-        '<div class="badge">' + svg(ICONS.tv) + "</div>";
+      card.innerHTML = '<img alt=""><div class="shade"></div><div class="title"></div>';
       card.querySelector(".title").textContent = s.title;
 
       var img = card.querySelector("img");
@@ -205,25 +298,33 @@
   // ── Player ───────────────────────────────────────
 
   function openSeries(s) {
-    if (!s.episodes.length) return;
-    var saved = loadProgress(s.id);
-    var index = 0;
-    var position = 0;
-    if (saved) {
-      for (var i = 0; i < s.episodes.length; i++) {
-        if (s.episodes[i].Id === saved.episodeId) { index = i; position = saved.position || 0; break; }
-      }
-    }
     $("home").className = "screen hidden";
     $("player").className = "screen";
+    $("spinner").className = "spinner";
+    $("episode-title").textContent = s.title;
     state.screen = "player";
-    playEpisode(s, index, position);
+
+    // Refresh episodes so watched state is current, then ask Jellyfin where to start.
+    loadEpisodes(s)
+      .then(pickStart)
+      .then(function (start) {
+        if (state.screen !== "player" || !s.episodes.length) return;
+        playEpisode(s, start.index, start.position);
+      })
+      .catch(function () {
+        $("spinner").className = "spinner hidden";
+        $("episode-title").textContent = "Kan Jellyfin niet bereiken";
+        showControls();
+      });
   }
 
   function playEpisode(s, index, position) {
     var ep = s.episodes[index];
-    state.current = { series: s, index: index, triedHls: false, startAt: position || 0 };
-    $("episode-title").textContent = s.title + " — " + ep.Name;
+    state.current = {
+      series: s, index: index, startAt: position || 0, reported: false,
+      playSessionId: DEVICE_ID + "-" + Date.now(), playMethod: "DirectPlay"
+    };
+    $("episode-title").textContent = s.type === "Movie" ? s.title : s.title + " — " + ep.Name;
     updateProgress();
     $("pause-icon").className = "pause-icon hidden";
     $("spinner").className = "spinner";
@@ -235,14 +336,14 @@
   function skipEpisode(delta) {
     var c = state.current;
     if (!c) return;
+    reportStopped(false);
     var n = c.series.episodes.length;
     playEpisode(c.series, (c.index + delta + n) % n, 0);
-    saveProgress();
     showControls();
   }
 
   function closePlayer() {
-    saveProgress();
+    reportStopped(false);
     video.pause();
     video.removeAttribute("src");
     video.load();
@@ -257,8 +358,6 @@
 
   // ── Controls (progress bar + buttons) ─────────────
   // Focus is "bar" (left/right = seek) or a button index: 0 = play/pause, 1 = next.
-
-  var CONTROLS_HIDE_MS = 4000;
 
   function controlsVisible() {
     return $("controls").className.indexOf("hidden") === -1;
@@ -302,12 +401,12 @@
   }
 
   function togglePause() {
+    if (!state.current) return;
     if (video.paused) {
       video.play();
       $("pause-icon").className = "pause-icon hidden";
     } else {
       video.pause();
-      saveProgress();
       $("pause-icon").className = "pause-icon";
     }
     showControls();
@@ -365,7 +464,7 @@
 
   video.addEventListener("loadedmetadata", function () {
     var c = state.current;
-    if (c && c.startAt > 0 && c.startAt < video.duration - 30) video.currentTime = c.startAt;
+    if (c && c.startAt > 0 && c.startAt < video.duration - 10) video.currentTime = c.startAt;
     updateProgress();
   });
 
@@ -375,6 +474,17 @@
 
   video.addEventListener("playing", function () {
     $("spinner").className = "spinner hidden";
+    if (state.current && !state.current.reported) reportStart();
+    else reportProgress("unpause");
+  });
+
+  video.addEventListener("pause", function () {
+    if (video.ended) return;
+    reportProgress("pause");
+  });
+
+  video.addEventListener("seeked", function () {
+    reportProgress("timeupdate");
   });
 
   video.addEventListener("waiting", function () {
@@ -383,11 +493,11 @@
 
   video.addEventListener("error", function () {
     var c = state.current;
-    if (!c) return;
-    if (!c.triedHls) {
+    if (!c || !video.getAttribute("src")) return;
+    if (c.playMethod === "DirectPlay") {
       // Direct play of the file failed; let Jellyfin remux/transcode to HLS instead.
-      c.triedHls = true;
-      video.src = hlsUrl(c.series.episodes[c.index]);
+      c.playMethod = "Transcode";
+      video.src = hlsUrl(c.series.episodes[c.index], c.playSessionId);
       video.load();
       video.play();
       return;
@@ -399,15 +509,22 @@
   });
 
   video.addEventListener("ended", function () {
-    if (state.current) skipEpisode(1);
+    var c = state.current;
+    if (!c) return;
+    reportStopped(true);
+    if (c.series.episodes.length > 1) skipEpisode(1);
+    else closePlayer();
   });
 
   setInterval(function () {
-    if (state.screen === "player" && !video.paused) saveProgress();
+    if (state.screen === "player" && !video.paused) reportProgress("timeupdate");
   }, 10000);
 
+  // Home button / app switch: pause and close the Jellyfin session, so the position is saved.
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden && state.screen === "player" && !video.paused) togglePause();
+    if (!document.hidden || state.screen !== "player") return;
+    if (!video.paused) togglePause();
+    reportStopped(false);
   });
 
   // ── Input ────────────────────────────────────────
@@ -435,15 +552,16 @@
 
   renderDoodles();
 
-  if (!cfg || !cfg.apiKey) {
+  if (!cfg || !cfg.username) {
     showMessage("config.js ontbreekt");
     return;
   }
 
-  Promise.all(cfg.series.map(loadSeries))
+  restoreLogin()
+    .then(function () { return Promise.all(cfg.series.map(loadSeries)); })
     .then(function (list) {
       state.series = list.filter(function (s) { return s && s.episodes.length; });
-      if (!state.series.length) showMessage("Kan Jellyfin niet bereiken of geen video's gevonden");
+      if (!state.series.length) showMessage("Geen video's gevonden in Jellyfin");
       renderGrid();
     })
     .catch(function (err) {

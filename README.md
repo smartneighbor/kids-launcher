@@ -7,10 +7,12 @@ Kindvriendelijke Jellyfin-player voor de **LG OLED48CX** (webOS 5, Chrome 68). Z
 | Scherm | Toets | Actie |
 |---|---|---|
 | Home | Pijltjes | Kaart kiezen |
-| Home | OK | Serie afspelen (gaat verder waar je was) |
+| Home | OK | Serie afspelen (Jellyfin Next Up: verder waar je was) |
 | Player | OK | Pauze / verder |
 | Player | Links / rechts | 15 seconden terug / vooruit |
-| Player | Terug | Naar home (positie wordt bewaard) |
+| Player | Omlaag | Naar de knoppen (pauze / Volgende) |
+| Player | CH+ / CH− | Volgende / vorige aflevering |
+| Player | Terug | Naar home (positie wordt in Jellyfin bewaard) |
 
 Op home doet Terug bewust niets; de Home-knop van de afstandsbediening werkt altijd.
 
@@ -19,11 +21,12 @@ Op home doet Terug bewust niets; de Home-knop van de afstandsbediening werkt alt
 ```bash
 npm i -g @webos-tools/cli
 ares-setup-device            # device "tv", TV in Developer Mode
-cp config.example.js config.js   # Jellyfin API key invullen
+cp config.example.js config.js   # Jellyfin-gebruiker + wachtwoord invullen
 ./deploy.sh
 ```
 
-Series staan in `config.js` (`series: [{ id, title }]`). Afleveringen, afbeeldingen en streams komen uit Jellyfin.
+Kaarten staan in `config.js` (`series: [{ name }]` of `{ id }`). Alles wat data is komt uit Jellyfin: afleveringen, artwork, streams, en wat er gekeken is.
+De app logt in als Jellyfin-gebruiker `Kids` en meldt het afspelen bij Jellyfin zoals elke Jellyfin-client. Waar een serie verdergaat bepaalt Jellyfin (Next Up + hervatpositie).
 Afspelen gaat direct (bestand zonder transcoding); als dat faalt valt de app terug op Jellyfin-HLS.
 
 ## Debuggen
