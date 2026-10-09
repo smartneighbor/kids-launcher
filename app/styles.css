@@ -33,14 +33,18 @@ html, body {
 }
 
 .tab {
+  display: flex;
+  align-items: center;
   margin: 0 20px;
-  padding: 14px 44px 18px;
+  padding: 14px 44px 18px 36px;
   border-radius: 40px;
   font-size: 44px;
   font-weight: 800;
   color: #2D2D2D;
   border-bottom: 6px solid transparent;
 }
+
+.tab svg { width: 52px; height: 52px; margin-right: 16px; fill: currentColor; }
 
 .tab.selected { color: #E51B23; }
 .tab.selected:not(.focused) { border-radius: 0; border-bottom-color: #E51B23; padding-bottom: 12px; }
@@ -104,8 +108,20 @@ html, body {
 }
 
 .card.focused {
-  transform: scale(1.06);
-  box-shadow: 0 0 0 8px #E51B23, 0 16px 34px rgba(90, 75, 54, 0.35);
+  transform: scale(1.1) translateY(-6px);
+  box-shadow: 0 0 0 8px #E51B23, 0 26px 48px rgba(90, 75, 54, 0.45);
+  z-index: 1;
+}
+
+.card .logo {
+  -webkit-filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+  position: absolute;
+  left: 10%; right: 10%; bottom: 14px;
+  height: 96px;
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: contain;
 }
 
 .message {
@@ -251,9 +267,36 @@ html, body {
 
 #episodes { background: #FFFCF5; }
 
+.ep-bg {
+  position: absolute;
+  top: 0; left: 0;
+  width: 1920px; height: 1080px;
+  object-fit: cover;
+}
+
+/* Keep our light style: the series artwork shows through on the right, the list stays readable. */
+.ep-bg-fade {
+  position: absolute;
+  top: 0; left: 0;
+  width: 1920px; height: 1080px;
+  background: linear-gradient(90deg, rgba(255, 252, 245, 0.97) 0%, rgba(255, 252, 245, 0.93) 55%, rgba(255, 252, 245, 0.72) 100%);
+}
+
+.ep-logo {
+  display: block;
+  max-height: 110px;
+  max-width: 560px;
+  /* Many logos are white: a soft outline keeps them readable on the light background. */
+  -webkit-filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.55)) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.55)) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
+}
+
 .ep-header {
   position: absolute;
-  top: 56px; left: 100px; right: 100px;
+  top: 40px; left: 100px; right: 100px;
+  height: 120px;
+  display: flex;
+  align-items: center;
 }
 
 .ep-series {

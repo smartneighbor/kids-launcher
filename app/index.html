@@ -9,8 +9,14 @@
   <div id="home" class="screen">
     <div id="doodles"></div>
     <nav id="tabs" class="tabs">
-      <div class="tab" data-tab="series">Series</div>
-      <div class="tab" data-tab="movies">Films</div>
+      <div class="tab" data-tab="series">
+        <svg viewBox="0 0 24 24"><path d="M21 6h-7.59l3.29-3.29L16 2l-4 4-4-4-.71.71L10.59 6H3c-1.1 0-2 .89-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.11-.9-2-2-2zm0 14H3V8h18v12zM9 10v8l7-4z"/></svg>
+        <span>Series</span>
+      </div>
+      <div class="tab" data-tab="movies">
+        <svg viewBox="0 0 24 24"><path d="M18 3v2h-2V3H8v2H6V3H4v18h2v-2h2v2h8v-2h2v2h2V3h-2zM8 17H6v-2h2v2zm0-4H6v-2h2v2zm0-4H6V7h2v2zm10 8h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2V7h2v2z"/></svg>
+        <span>Films</span>
+      </div>
     </nav>
     <div class="grid-area"><div id="grid" class="grid"></div></div>
     <div id="message" class="message hidden"></div>
@@ -49,7 +55,10 @@
   </div>
 
   <div id="episodes" class="screen hidden">
+    <img id="ep-bg" class="ep-bg" alt="">
+    <div class="ep-bg-fade"></div>
     <div class="ep-header">
+      <img id="ep-logo" class="ep-logo hidden" alt="">
       <div id="ep-series" class="ep-series"></div>
     </div>
     <div id="ep-seasons" class="ep-seasons"></div>

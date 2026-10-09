@@ -2,7 +2,7 @@
   "use strict";
 
   var cfg = window.KIDS_TV_CONFIG;
-  var APP_VERSION = "0.7.0";
+  var APP_VERSION = "0.8.0";
   var DEVICE_ID = navigator.userAgent.indexOf("Web0S") !== -1 ? "kidstv-lg" : "kidstv-preview";
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACKSPACE: 8, ESC: 27,
               PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, FF: 417, RW: 412,
@@ -109,8 +109,19 @@
 
   // ── Jellyfin: URLs ───────────────────────────────
 
-  function imageUrl(itemId, type) {
-    return cfg.jellyfinUrl + "/Items/" + itemId + "/Images/" + type + "?maxWidth=900&quality=90";
+  // The image tag changes when the artwork changes in Jellyfin, so the TV never shows a cached old image.
+  function logoUrl(s) {
+    return cfg.jellyfinUrl + "/Items/" + s.id + "/Images/Logo?maxHeight=220&quality=90&tag=" + (s.tags.Logo || "");
+  }
+
+  function imageUrl(itemId, type, tag) {
+    return cfg.jellyfinUrl + "/Items/" + itemId + "/Images/" + type + "?maxWidth=900&quality=90" +
+      (tag ? "&tag=" + tag : "");
+  }
+
+  function seriesImage(s, type) {
+    var tag = type === "Backdrop" ? (s.backdropTags || [])[0] : s.tags[type];
+    return imageUrl(s.id, type, tag);
   }
 
   function directUrl(ep) {
@@ -136,7 +147,7 @@
       Season: it.ParentIndexNumber || 0,
       Index: it.IndexNumber || 0,
       RunTimeTicks: it.RunTimeTicks || 0,
-      HasImage: !!(it.ImageTags && it.ImageTags.Primary)
+      ImageTag: it.ImageTags && it.ImageTags.Primary
     };
   }
 
@@ -163,7 +174,9 @@
     return api("/Items?userId=" + state.userId + "&Recursive=true&IncludeItemTypes=Series,Movie&SortBy=SortName")
       .then(function (d) {
         return Promise.all(d.Items.map(function (it) {
-          return loadEpisodes({ id: it.Id, title: it.Name, type: it.Type, episodes: [] })
+          return loadEpisodes({ id: it.Id, title: it.Name, type: it.Type, episodes: [],
+                                tags: it.ImageTags || {}, backdropTags: it.BackdropImageTags || [],
+                                hasLogo: !!(it.ImageTags && it.ImageTags.Logo) })
             .catch(function () { return null; });
         }));
       });
@@ -253,12 +266,15 @@
     state.series.forEach(function (s, i) {
       var card = document.createElement("div");
       card.className = "card";
-      card.innerHTML = '<img alt=""><div class="shade"></div><div class="title"></div>';
-      card.querySelector(".title").textContent = s.title;
+      // Series logo (from Jellyfin) when there is one: easier to recognise than text for kids.
+      card.innerHTML = '<img alt=""><div class="shade"></div>' +
+        (s.hasLogo ? '<div class="logo"></div>' : '<div class="title"></div>');
+      if (s.hasLogo) card.querySelector(".logo").style.backgroundImage = "url(" + logoUrl(s) + ")";
+      else card.querySelector(".title").textContent = s.title;
 
       var img = card.querySelector("img");
       // Artwork comes from Jellyfin: clean backdrop first, then landscape thumb, then poster.
-      var sources = [imageUrl(s.id, "Backdrop"), imageUrl(s.id, "Thumb"), imageUrl(s.id, "Primary")];
+      var sources = [seriesImage(s, "Backdrop"), seriesImage(s, "Thumb"), seriesImage(s, "Primary")];
       img.onerror = function () {
         if (sources.length) img.src = sources.shift();
       };
@@ -564,7 +580,12 @@
         if (r !== -1) { ep.season = si; ep.row = r; }
       });
 
-      $("ep-series").textContent = s.title;
+      $("ep-series").textContent = s.hasLogo ? "" : s.title;
+      $("ep-logo").className = "ep-logo" + (s.hasLogo ? "" : " hidden");
+      if (s.hasLogo) $("ep-logo").src = logoUrl(s);
+      $("ep-bg").className = "ep-bg";
+      $("ep-bg").onerror = function () { this.className = "ep-bg hidden"; };
+      $("ep-bg").src = seriesImage(s, "Backdrop").replace("maxWidth=900", "maxWidth=1920");
       $("episodes").className = "screen" + (seasons.length > 1 ? "" : " single-season");
       if (from === "home") $("home").className = "screen hidden";
       state.screen = "episodes";
@@ -621,9 +642,9 @@
         index === ep.currentIndex ? (ep.from === "player" ? "Speelt nu" : "Hier ga je verder") : minutes(e.RunTimeTicks);
 
       var img = row.querySelector("img");
-      var sources = [cfg.jellyfinUrl + "/Items/" + e.Id + "/Images/Primary?maxWidth=480&quality=85",
-                     imageUrl(ep.series.id, "Thumb"), imageUrl(ep.series.id, "Backdrop")];
-      if (!e.HasImage) sources.shift();
+      var sources = [cfg.jellyfinUrl + "/Items/" + e.Id + "/Images/Primary?maxWidth=480&quality=85&tag=" + e.ImageTag,
+                     seriesImage(ep.series, "Thumb"), seriesImage(ep.series, "Backdrop")];
+      if (!e.ImageTag) sources.shift();
       img.onerror = function () { if (sources.length) img.src = sources.shift(); };
       img.src = sources.shift();
 
