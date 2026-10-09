@@ -63,22 +63,45 @@
       "&ApiKey=" + cfg.apiKey;
   }
 
-  function loadSeries(s) {
-    return api("/Items?ParentId=" + s.id + "&Recursive=true&IncludeItemTypes=Episode" +
-               "&SortBy=ParentIndexNumber,IndexNumber&Fields=MediaSources")
+  function toPlayable(it) {
+    return {
+      Id: it.Id,
+      Name: it.Name,
+      MediaSourceId: it.MediaSources && it.MediaSources[0] ? it.MediaSources[0].Id : it.Id
+    };
+  }
+
+  // Config entries use either a Jellyfin id or an exact name ("Bing", "Dikkertje Dap").
+  function findItem(s) {
+    if (s.id) return api("/Items?Ids=" + s.id + "&Fields=MediaSources").then(function (d) { return d.Items[0]; });
+    return api("/Items?Recursive=true&IncludeItemTypes=Series,Movie&Fields=MediaSources&searchTerm=" +
+               encodeURIComponent(s.name))
       .then(function (data) {
-        return {
-          id: s.id,
-          title: s.title,
-          episodes: data.Items.map(function (it) {
-            return {
-              Id: it.Id,
-              Name: it.Name,
-              MediaSourceId: it.MediaSources && it.MediaSources[0] ? it.MediaSources[0].Id : it.Id
-            };
-          })
-        };
+        var want = s.name.toLowerCase();
+        var exact = data.Items.filter(function (it) { return it.Name.toLowerCase() === want; });
+        var item = exact[0] || data.Items[0];
+        if (!item) throw new Error(s.name + " niet gevonden");
+        return item;
       });
+  }
+
+  function loadSeries(s) {
+    return findItem(s).then(function (item) {
+      var entry = { id: item.Id, title: s.title || item.Name, cover: s.cover, plain: !!s.plain, episodes: [] };
+      if (item.Type === "Movie") {
+        entry.episodes = [toPlayable(item)];
+        return entry;
+      }
+      return api("/Items?ParentId=" + item.Id + "&Recursive=true&IncludeItemTypes=Episode" +
+                 "&SortBy=ParentIndexNumber,IndexNumber&Fields=MediaSources")
+        .then(function (data) {
+          entry.episodes = data.Items.map(toPlayable);
+          return entry;
+        });
+    }).catch(function (err) {
+      console.warn("Overgeslagen:", s.name || s.id, err.message);
+      return null;
+    });
   }
 
   // ── Progress (per series: last episode + position) ─
@@ -128,19 +151,20 @@
     state.series.forEach(function (s, i) {
       var card = document.createElement("div");
       card.className = "card";
-      card.innerHTML =
+      card.innerHTML = s.plain ? '<img alt="">' :
         '<img alt="">' +
         '<div class="shade"></div>' +
         '<div class="title"></div>' +
         '<div class="badge">' + svg(ICONS.tv) + "</div>";
-      card.querySelector(".title").textContent = s.title;
+      if (!s.plain) card.querySelector(".title").textContent = s.title;
 
       var img = card.querySelector("img");
-      var fallbacks = ["Backdrop", "Primary"];
+      var sources = [imageUrl(s.id, "Thumb"), imageUrl(s.id, "Backdrop"), imageUrl(s.id, "Primary")];
+      if (s.cover) sources.unshift(s.cover);
       img.onerror = function () {
-        if (fallbacks.length) img.src = imageUrl(s.id, fallbacks.shift());
+        if (sources.length) img.src = sources.shift();
       };
-      img.src = imageUrl(s.id, "Thumb");
+      img.src = sources.shift();
 
       card.addEventListener("mouseover", function () { setFocus(i); });
       card.addEventListener("click", function () { setFocus(i); openSeries(s); });
@@ -418,7 +442,8 @@
 
   Promise.all(cfg.series.map(loadSeries))
     .then(function (list) {
-      state.series = list;
+      state.series = list.filter(function (s) { return s && s.episodes.length; });
+      if (!state.series.length) showMessage("Kan Jellyfin niet bereiken of geen video's gevonden");
       renderGrid();
     })
     .catch(function (err) {

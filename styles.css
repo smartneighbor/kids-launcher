@@ -20,39 +20,23 @@ html, body {
 
 /* ── Home ───────────────────────────────────────── */
 
+#home {
+  display: flex;
+  align-items: center;
+}
+
 #doodles svg {
   position: absolute;
   fill: #EDE8DC;
 }
-
-.tabs {
-  position: relative;
-  display: flex;
-  justify-content: center;
-  padding-top: 21px;
-  height: 230px;
-}
-
-.tab {
-  width: 180px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  color: #2D2D2D;
-}
-
-.tab svg { width: 93px; height: 93px; fill: currentColor; }
-.tab span { margin-top: 9px; font-size: 30px; font-weight: 800; }
-.tab i { margin-top: 12px; width: 105px; height: 6px; border-radius: 3px; background: transparent; }
-.tab.selected { color: #E51B23; }
-.tab.selected i { background: #E51B23; }
 
 .grid {
   position: relative;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-gap: 30px;
-  padding: 12px 60px 0;
+  width: 1920px;
+  padding: 0 100px;
 }
 
 .card {
@@ -107,20 +91,6 @@ html, body {
   transform: scale(1.05);
   box-shadow: 0 0 0 10px #E51B23, 0 16px 34px rgba(90, 75, 54, 0.35);
 }
-
-.lock {
-  position: absolute;
-  right: 36px; bottom: 27px;
-  width: 102px; height: 102px;
-  border-radius: 51px;
-  background: #FFFDF8;
-  box-shadow: 0 8px 20px rgba(90, 75, 54, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.lock svg { width: 51px; height: 51px; fill: #373737; }
 
 .message {
   position: absolute;
